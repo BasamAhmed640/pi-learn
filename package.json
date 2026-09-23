@@ -1,0 +1,45 @@
+{
+  "name": "pi-learn",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Amos Blomqvist's AI learning system for pi, extended with default Mermaid diagrams for systems and Obsidian session linking and resume.",
+  "type": "module",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/md-log.ts",
+      "./extensions/quiz.ts",
+      "./extensions/ask-user-question.ts",
+      "./extensions/system-diagrams.ts",
+      "./extensions/visual-tools/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "scripts": {
+    "test": "node tests/run.mjs"
+  },
+  "dependencies": {
+    "linkedom": "0.18.13",
+    "mermaid": "11.13.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  }
+}

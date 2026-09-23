@@ -1,0 +1,59 @@
+/*
+ * pi-learn — Obsidian styling for learning notes.
+ *
+ * Scoped to notes whose properties include `cssclasses: pi-learn` (pi-learn adds
+ * it to every note it creates or links), so the rest of the vault is untouched.
+ * Works in reading view and live preview.
+ *
+ * Centers the three block types the lessons are built from: callouts, display
+ * equations and Mermaid diagrams (plus embedded diagram images). Text inside a
+ * callout stays left-aligned so questions, options and explanations remain easy
+ * to read.
+ */
+
+/* Callouts: centered boxes that shrink around short content and grow to the column width. */
+.pi-learn .callout {
+	margin-inline: auto;
+	width: fit-content;
+	min-width: min(100%, 24rem);
+	max-width: 100%;
+	box-sizing: border-box;
+}
+
+/* A callout inside a callout simply fills its parent. */
+.pi-learn .callout .callout {
+	width: auto;
+	min-width: 0;
+}
+
+/* Display equations ($$ … $$), top level and inside callouts. */
+.pi-learn .math-block,
+.pi-learn mjx-container.MathJax[display="true"] {
+	display: block;
+	text-align: center;
+	margin-inline: auto;
+	max-width: 100%;
+	overflow-x: auto;
+}
+
+/* Mermaid diagrams. */
+.pi-learn .mermaid {
+	display: flex;
+	justify-content: center;
+	text-align: center;
+}
+
+.pi-learn .mermaid > svg {
+	display: block;
+	margin-inline: auto;
+}
+
+/* Embedded diagram images (e.g. ![[viz-….png|500]] from the visual makers). */
+.pi-learn .image-embed {
+	display: block;
+	text-align: center;
+}
+
+.pi-learn .image-embed img {
+	margin-inline: auto;
+}

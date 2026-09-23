@@ -1,6 +1,6 @@
 ---
 name: visualize
-description: "Add a correct, minimal visual to a lesson — a diagram or geometric picture — that renders inline in the Obsidian log. Use when an idea is genuinely clearer as a picture: a dependency graph, system/flow, sequence, state machine, tree, comparison, or a spatial/geometric thing (coordinate geometry, number line, vectors, a plot, a physical layout). Outsources authoring+rendering to a maker subagent that verifies the image by looking at it, then you embed the returned file."
+description: "Add a correct, minimal visual to a lesson — a diagram or geometric picture — that renders inline in the Obsidian log. Use when an idea is genuinely clearer as a picture: a dependency graph, system/flow, sequence, state machine, tree, comparison, or a spatial/geometric thing (coordinate geometry, number line, vectors, a plot, a physical layout). Outsources authoring+rendering to a maker subagent that verifies the image by looking at it, then you embed the returned file. System diagrams are NOT routed through here: the teach skill's system rule has you write them inline as Mermaid, by default."
 ---
 
 # Visualize
@@ -9,6 +9,12 @@ A picture earns its place only when it shows something words can't — shape, st
 
 You are the **creative director**. You decide the exact idea and distill it to its fewest carrying elements. A **maker subagent** does the authoring, rendering, visual verification, and saving, then returns a filename. You embed that filename in your reply.
 
+## Systems are handled by the teach skill — not here
+
+If the thing being taught is a **system** (see teach → *Systems get a Mermaid diagram*), you don't need this skill and you don't apply its "when in doubt, don't". Write the diagram yourself, inline, as a ```mermaid block in the lesson. Do it every time and bias toward drawing when unsure. Obsidian renders it natively, and the session validates it against Obsidian's Mermaid version. That path needs no subagent and works everywhere.
+
+Use this skill for the other visuals: spatial and geometric pictures (svg-maker), and optionally a polished, render-verified PNG of a structure that is already clear. The makers need a subagent runner that loads `.pi/agents/` plus the `visual-tools` extension (pi-interactive-subagents, which runs in tmux). If that runner isn't available in this session, skip maker visuals. The inline Mermaid rule for systems still applies.
+
 ## When to visualize (and when not to)
 
 This teaching system builds a **dependency graph in the learner's head** — axioms at the root, derived facts hanging off them. A visual is powerful exactly when it makes that structure (or a geometry) visible. Reach for one when:
@@ -16,7 +22,7 @@ This teaching system builds a **dependency graph in the learner's head** — axi
 - The idea is a **structure or relationship**: dependencies, a system with parts and arrows, a flow/pipeline, a sequence of exchanges, a state machine, a tree/hierarchy, a comparison, a containment (what's inside vs outside).
 - The idea is **spatial or geometric**: coordinate geometry, a number line, vectors, a function's shape, a physical arrangement.
 
-Do NOT visualize when prose or a single equation already carries it. A decorative diagram that just restates the sentence next to it adds noise and a chance to be wrong. When in doubt, don't — a missing visual is cheaper than a false one.
+Do NOT visualize when prose or a single equation already carries it. A decorative diagram that just restates the sentence next to it adds noise and a chance to be wrong. For maker visuals of things that are *not* systems, when in doubt, don't — a missing visual is cheaper than a false one. (Systems follow the opposite default; see above.)
 
 ## Choose the maker
 
@@ -57,7 +63,7 @@ filename: viz-<slug>-<timestamp>.png
 path: <cwd>/viz/viz-<slug>-<timestamp>.png
 ```
 
-If it returns `RESULT: NONE`, it couldn't make a correct picture of the brief — simplify or rethink, or decide the visual isn't worth it. Never hand-author or fake a diagram yourself; correctness depends on the maker's render-and-inspect loop.
+If it returns `RESULT: NONE`, it couldn't make a correct picture of the brief — simplify or rethink, or decide the visual isn't worth it. Never hand-author or fake a maker's PNG yourself; correctness of a maker visual depends on its render-and-inspect loop. (Inline Mermaid system diagrams are the exception: you write those directly, and the session validates them.)
 
 ## Embed it in the lesson
 

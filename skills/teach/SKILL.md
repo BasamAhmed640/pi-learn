@@ -1,6 +1,6 @@
 ---
 name: teach
-description: Teach the user anything so it actually locks in and is understood, not just memorized. Use ANY time you're explaining or teaching him something — even a quick explanation. Based on two teaching principles he has personally verified to work for years.
+description: Teach the user anything so it actually locks in and is understood, not just memorized. Use ANY time you're explaining or teaching him something — even a quick explanation. Based on two teaching principles he has personally verified to work for years. Whenever the thing being taught is a system (interacting parts whose relationships matter), the lesson includes a Mermaid diagram of it by default.
 ---
 
 # Teaching
@@ -113,7 +113,9 @@ A good plan is what makes the teaching feel inevitable instead of arbitrary.
 **Then present the plan in chat — always, before any teaching.** Two parts:
 
 1. **The approach, in prose.** What we'll cover, in what order, and why this way — given where his edge sits (Phase 1a) and what he's reaching for (Phase 1b). A few freeform sentences.
-2. **The dependency map.** The plan's backbone as a DAG: unconditional truths at the roots, each derived node hanging off what it depends on, his goal as the sink. Draw it as a small ```mermaid``` graph (Obsidian renders mermaid natively in the log). This map *is* the teaching order — Phase 3 builds it node by node. Keep it small: few nodes, short labels — a map, not the territory.
+2. **The dependency map.** The plan's backbone as a DAG: unconditional truths at the roots, each derived node hanging off what it depends on, his goal as the sink. Draw it as a small ```mermaid``` graph (Obsidian renders mermaid natively in the log), with `%% dependency-map` on the line after `graph TD` so it is never mistaken for a concept diagram. This map *is* the teaching order — Phase 3 builds it node by node. Keep it small: few nodes, short labels — a map, not the territory.
+
+**Plan the diagrams too.** Run the system check (see *Systems get a Mermaid diagram*) on every node and on the goal. Say in the approach which nodes will get a system diagram, and whether the goal needs an overview plus zoom-ins. A system diagram is part of that node's teaching, not an optional extra.
 
 **Stress-test the roots before presenting.** For every node you're treating as foundational, ask: is this genuinely an unconditional truth *for him*, or a disguised theorem that itself derives from something simpler he'd accept at face value? If it derives, push it down and extend the map — never found the lesson on a mid-level fact. A wrong root corrupts everything hung off it, and roots are far easier to audit in a drawn map than mid-flow.
 
@@ -129,12 +131,75 @@ For **every node** (each unconditional truth *and* each non-trivial reasoning st
 2. **Establish.** 
    - If it's a foundational unconditional truth: state it plainly, at face value, no caveats. Surface an atomic unit if one fits.
    - If it's a derived step: build it up from what's already established via a motivated move (Socratic or expository), answering "how could I have discovered this?" When a Socratic step has a gradable right/wrong answer, pose it with `quiz` even though he's "attempting the discovery" — gradable-and-Socratic is normal, not a contradiction; only fall back to `ask_user_question` if there's genuinely no right answer.
-3. **Connect.** Make the dependency edge explicit — show exactly how this new node hangs off the ones already in place, so it's understood, not memorized.
+   - If the node is a system, or adds a part to one — see *Systems get a Mermaid diagram* — draw its diagram here, before the details, and explain against it.
+3. **Connect.** Make the dependency edge explicit — show exactly how this new node hangs off the ones already in place, so it's understood, not memorized. In a system, the diagram's edges *are* these connections; point at the one you're establishing.
 4. **Quiz-check.** Confirm the node actually landed with a quick `quiz` — this applies to foundations just as much as derived steps. An unconfirmed unconditional truth is exactly as dangerous as an unconfirmed derived fact: if he misses it, that node isn't solid, so stop and fix it before building anything on top of it.
 
 Repeat this full loop per node — don't front-load all the foundations once at the start and then stop checking. Any time a new unconditional truth is needed mid-session, it goes through motivate → establish → connect → quiz-check just like a derived step would.
 
 If you catch yourself asserting a fact he'd have to take on faith — foundational or not — stop: either motivate it and confirm it lands, or ground it in something already established. Unmotivated, unconfirmed facts don't lock in — that's the whole point.
+
+## Systems get a Mermaid diagram — by default
+
+A system's meaning lives in its edges: what feeds what, what depends on what, what happens in which order, what loops back. Prose walks those edges one sentence at a time and leaves him to rebuild the structure in his head. A diagram shows the whole graph at once. That's the same dependency-graph idea as everything above, so for systems the diagram isn't decoration. It is part of **Establish** and **Connect**.
+
+**What counts as a system.** Any concept made of multiple interacting parts whose relationships matter for understanding how the whole works. It has two or more of:
+
+1. components, modules, stages, actors or subsystems
+2. inputs and outputs
+3. flows of information, energy, signals, materials, control or causality
+4. dependencies or relationships between components
+5. sequencing or ordered stages
+6. feedback loops
+7. hierarchy or containment
+8. interfaces or boundaries between parts
+9. state transitions or changes over time
+
+Judge the **structure**, not the vocabulary. The word "system" is neither needed nor enough: blood-glucose regulation is a system (sensors, hormones, organs, a feedback loop), and "the metric system" (a set of unit definitions) is not. Typical systems: a circuit or power-delivery network, a CPU, a networking stack, a software architecture, a control loop, a manufacturing process, a biological pathway, an economic mechanism, a multi-stage physical process.
+
+**The decision rule** — apply it to every node you establish, and to the goal:
+
+| Verdict | Looks like | Diagram |
+|---|---|---|
+| Clearly not a system | atomic, purely definitional, a lone property or formula, one relation with nothing to trace | none — never manufacture one |
+| Possibly a system | two features, or the relationships are thin | strongly preferred — draw it |
+| Clearly a system | two or more features, and the relationships carry the understanding | expected — always draw it |
+| Complex or central system | many parts or subsystems, or it's the lesson goal | required — overview first, then zoom-ins |
+
+When unsure, bias toward drawing. Don't wait for him to ask, don't ask whether he wants one, and never drop a due diagram to keep a reply short. The only reasons to skip a diagram for a possible-or-clear system are that it's technically impossible or would clearly hurt understanding. If that happens, say so in one line.
+
+**Where it goes.** In the Establish step, right after motivating the node and before the details. Then explain *against* it ("follow the arrow from the sensor to the controller"). The prose carries why each edge exists; the diagram carries where everything sits. For a **complex** system, draw a high-level overview first: the major blocks and main flows, ≤ ~10 nodes. When you reach a subsystem whose insides matter, give it its own zoom-in diagram. When a later node adds a part to a system you've already drawn, redraw it with the addition. The Phase-2 dependency map is the lesson plan, not a concept diagram, so it never stands in for one.
+
+**Pick the type that shows the structure:**
+
+| What carries the idea | Mermaid |
+|---|---|
+| components and flows, pipelines, causal chains, dependencies, feedback loops | `flowchart LR` / `flowchart TD` — loops as labelled back-edges; hierarchy, containment and boundaries as `subgraph`s |
+| actors exchanging messages over time (protocols, handshakes, request paths) | `sequenceDiagram` |
+| modes and the events that switch between them | `stateDiagram-v2` |
+| static structure, composition, data relationships | `classDiagram` / `erDiagram` |
+| stages in time | `timeline` |
+
+Show the major components, the **direction of flow**, **inputs and outputs** at the diagram's edges, dependencies, **ordered steps** (number them when order matters), **interfaces** (subgraph boundaries) and **feedback paths**. Label edges with what flows (data, signal, energy, material, control) when it isn't obvious. Don't draw a list of terms hanging off one node, a restated sentence, or decorative boxes. If deleting the diagram would cost him nothing, it was the wrong diagram.
+
+**Correctness.** A diagram is a claim, so the accuracy rule applies: before sending, trace every arrow against your prose. A reversed arrow corrupts the graph exactly like a wrong fact does.
+
+## Formatting — diagrams render as Mermaid
+
+Obsidian renders Mermaid 11.13 natively, and every diagram is validated against that version. So write:
+
+- A ```mermaid fenced block in your normal reply text, never inside a quiz or question.
+- Line 1 is the diagram type. Line 2 is a tag comment: `%% system: <name> — overview` or `%% system: <name> — zoom: <part>`, or `%% dependency-map` for the plan. It's invisible in Obsidian and lets the notes be audited and resumed.
+- Short alphanumeric node ids with the words in quoted labels: `alu["ALU (arithmetic)"]`. Quote every label that contains spaces or punctuation. Unquoted `( ) [ ] { } "` inside a label is the most common parse error, and so are empty labels, labels starting with `/`, and `@`. Never use `end`, `graph`, `subgraph`, `class`, `style` or `click` as a node id.
+- Flowchart arrows are `-->`, `---`, `-.->` and `==>`, with labels written as `-- text -->` or `-->|text|`. Never write `->`, `→` or `A --> B: text`. In a `sequenceDiagram`, every message needs a colon (`A->>B: text`) and no `;`. State ids have no hyphens. `erDiagram` relationships always carry a label. `%%` comments go on their own line, never after code.
+- Labels of at most ~5 words, with `<br/>` for a line break. No LaTeX, no `%%{init}%%` theming and no click/links inside Mermaid.
+- At most ~12 nodes per diagram. If it needs more, split it into an overview and zoom-ins.
+
+If a diagram fails to parse you'll be told. Redraw it correctly without making a fuss.
+
+## Formatting — questions go through the tools
+
+Every question you put to him goes through `quiz` if it has a right answer, or `ask_user_question` if it doesn't. That covers probes, Socratic steps, quiz-checks, and questions about goals or preferences. Never pose a question only in prose. The tools are what render questions as callouts in his Obsidian note, and they're how his answers get recorded.
 
 ## Formatting — math renders as LaTeX
 

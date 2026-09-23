@@ -16,3 +16,7 @@ __pycache__/
 # Runtime state
 .memory/
 *.log
+
+# pi-learn test outputs
+tests/e2e/out/
+tests/obsidian/out/
