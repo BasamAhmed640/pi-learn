@@ -7,7 +7,7 @@
 // quiz-explanation leaks into question callouts, wikilink/embed resolution against the vault,
 // frontmatter and session sections. Writes report.json + report.md into the run directory.
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -21,7 +21,7 @@ async function loadMermaidLib() {
 	if (!existsSync(p)) return { lib: null, reason: "extensions/lib/mermaid.ts not present" };
 	try {
 		const lib = await import(pathToFileURL(p).href);
-		if (typeof lib.extractMermaidBlocks !== "function") return { lib: null, reason: "mermaid.ts lacks extractMermaidBlocks" };
+		if (typeof lib.extractMermaidBlocks !== "function" || typeof lib.validateMermaid !== "function") return { lib: null, reason: "mermaid.ts lacks extraction or validation" };
 		return { lib, reason: null };
 	} catch (err) {
 		return { lib: null, reason: `import failed: ${err.message}` };
@@ -312,9 +312,11 @@ async function analyzeScenario(outDir, id, mermaidLib) {
 	// Links
 	const vault = trace.vault ?? null;
 	const notePathInVault = trace.paths?.note ?? trace.phases?.at(-1)?.paths?.note ?? null;
+	const noteRel = vault && notePathInVault ? relative(vault, notePathInVault) : null;
+	const linksChecked = !!(vault && existsSync(vault) && notePathInVault && existsSync(notePathInVault) && noteRel !== ".." && !noteRel?.startsWith(`..${sep}`) && !isAbsolute(noteRel));
 	let links = [];
-	if (vault && notePathInVault) links = checkLinks(md, notePathInVault, indexVault(vault));
-	else res.notes.push("vault/note path unknown: link resolution skipped");
+	if (linksChecked) links = checkLinks(md, notePathInVault, indexVault(vault));
+	else res.notes.push("vault/note path unavailable: link resolution pending");
 	const unresolved = links.filter((l) => !l.ok);
 
 	const startModes = phases.map((p) => p.driver?.startMode);
@@ -365,7 +367,8 @@ async function analyzeScenario(outDir, id, mermaidLib) {
 		add("concept-diagrams", concept.length >= 2 && overview && zoom, `${concept.length} concept diagram(s), overview=${overview}, zoom=${zoom}; need ≥2 incl. overview + zoom`);
 	} else if (kind === "ambiguous") add("concept-diagrams", concept.length >= 1, `${concept.length} concept diagram(s), need ≥1`);
 	else if (kind === "non-system") add("no-concept-diagrams", concept.length === 0, `${concept.length} concept diagram(s), need 0`);
-	if (!mermaidLib.lib) add("mermaid-valid", null, "skipped: validator unavailable");
+	const validatorReady = typeof mermaidLib.lib?.validateMermaid === "function";
+	if (!validatorReady) add("mermaid-valid", null, `pending: validator unavailable (${mermaidLib.reason ?? "no validateMermaid function"})`);
 	else {
 		const bad = diagrams.filter((d) => d.validity !== "valid");
 		add("mermaid-valid", bad.length === 0, bad.length ? `${bad.length} not valid: ${bad.map((d) => `#${d.index} ${d.validity}${d.error ? ` (${String(d.error).split("\n")[0].slice(0, 80)})` : ""}`).join("; ")}` : `${diagrams.length} block(s) valid`);
@@ -374,11 +377,19 @@ async function analyzeScenario(outDir, id, mermaidLib) {
 	add("diagram-size", small.length === 0, small.length ? `${small.length} concept diagram(s) below 3 nodes / 2 edges: ${small.map((d) => `#${d.index} (${d.nodes}n/${d.edges}e)`).join(", ")}` : "all concept diagrams ≥3 nodes, ≥2 edges");
 	add("qa-callouts", questionCallouts.length === qaExecuted.length, `${questionCallouts.length} question callout(s) vs ${qaExecuted.length} executed QA call(s) (${qaBlocked.length} blocked); ${answerCallouts.length} answer callout(s)`);
 	add("no-explanation-leak", leaks.length === 0, leaks.length ? `${leaks.length} question callout(s) contain the quiz explanation` : "no leaks");
-	add("links-resolve", unresolved.length === 0, unresolved.length ? `${unresolved.length} unresolved: ${unresolved.map((l) => `${l.raw} (${l.reason})`).join(", ")}` : `${links.length} link(s), all resolve`);
+	add("links-resolve", linksChecked ? unresolved.length === 0 : null, !linksChecked ? "pending: vault/note unavailable" : unresolved.length ? `${unresolved.length} unresolved: ${unresolved.map((l) => `${l.raw} (${l.reason})`).join(", ")}` : `${links.length} link(s), all resolve`);
 	add("note-structure", structure.ok, structure.ok ? `frontmatter ok, ${structure.sections.length} session section(s)` : structure.problems.join("; "));
 	if (kind === "resume") add("resume-continued", res.resume?.verdict === "continued", `verdict: ${res.resume?.verdict ?? "n/a"} ${JSON.stringify(res.resume?.signals ?? {})}`);
+	const incomplete = [];
+	if (trace.fatal) incomplete.push(`fatal: ${String(trace.fatal).split("\n")[0]}`);
+	for (const p of phases) {
+		if (!p.driver?.stopReason || ["error", "timeout"].includes(p.driver.stopReason)) incomplete.push(`${p.phase ?? "main"}: stopped ${p.driver?.stopReason ?? "without reason"}`);
+		if ((p.resources?.extensionLoadErrors ?? []).length || (p.extensionErrors ?? []).length) incomplete.push(`${p.phase ?? "main"}: extension error`);
+		if ((p.learnerDecisions ?? []).some((d) => d.consistent === false || d.error)) incomplete.push(`${p.phase ?? "main"}: learner mismatch`);
+	}
+	add("harness-complete", incomplete.length === 0, incomplete.length ? incomplete.join("; ") : `${phases.length} phase(s) completed without fatal, timeout, extension or learner errors`);
 	res.criteria = criteria;
-	res.pass = criteria.every((c) => c.pass !== false);
+	res.pass = criteria.every((c) => c.pass === true);
 	return res;
 }
 
@@ -455,5 +466,5 @@ if (invokedDirectly) {
 		if (s.error) console.log(`   error: ${s.error}`);
 	}
 	console.log(`\n${report.summary.passed}/${report.summary.total} pass -> ${join(resolve(dir), "report.md")}`);
-	process.exit(0); // the Mermaid validator's worker thread would otherwise keep the process alive
+	process.exit(report.summary.total > 0 && report.summary.passed === report.summary.total ? 0 : 1); // the Mermaid validator's worker thread would otherwise keep the process alive
 }

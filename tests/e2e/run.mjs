@@ -91,9 +91,13 @@ await Promise.all(
 	}),
 );
 
+let acceptanceOk = true;
 if (!args["no-analyze"]) {
 	const { analyzeOutDir } = await import("./analyze.mjs");
 	const report = await analyzeOutDir(outDir);
+	const byId = new Map(report.scenarios.map((s) => [s.id, s]));
+	acceptanceOk = report.summary.total === scenarios.length && scenarios.every((s) => byId.get(s.id)?.pass === true);
 	console.log(`\nacceptance: ${report.summary.passed}/${report.summary.total} scenario(s) pass -> ${join(outDir, "report.md")}`);
 }
-process.exit(results.every((r) => r.ok && !r.fatal) ? 0 : 1);
+const executionOk = results.length === scenarios.length && results.every((r) => r.ok && !r.fatal && !String(r.stopReason ?? "").includes("timeout"));
+process.exit(executionOk && acceptanceOk ? 0 : 1);
