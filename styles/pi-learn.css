@@ -33,6 +33,11 @@
 	text-align: center;
 	margin-inline: auto;
 	max-width: 100%;
+}
+
+/* Scroll wide equations on the wrapper. Overflow on mjx-container itself can add
+ * a vertical scrollbar and shift the visible formula 6px off center. */
+.pi-learn .math-block {
 	overflow-x: auto;
 }
 

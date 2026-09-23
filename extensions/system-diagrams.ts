@@ -65,6 +65,7 @@ export interface SystemDiagramAuditEvent {
 	tool?: string;
 	classification?: SystemClassification | null;
 	invalid?: InvalidDiagram[];
+	error?: string;
 }
 
 function assistantText(message: any): string {
@@ -135,22 +136,36 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 		}
 	}
 
+	let lastClassifierError = "";
+
 	async function classify(ctx: any, text: string): Promise<SystemClassification | null> {
 		try {
-			if (!ctx?.model || typeof ctx?.modelRegistry?.streamSimple !== "function") return null;
+			if (!ctx?.model || typeof ctx?.modelRegistry?.streamSimple !== "function") {
+				lastClassifierError = "no active model";
+				return null;
+			}
 			const signal = AbortSignal.timeout(CLASSIFIER_TIMEOUT_MS);
+			// Some providers (e.g. opencode-go) reject requests that carry no session id,
+			// so nested calls must reuse the session's id just like the main agent loop.
+			const sessionId = ctx.sessionManager?.getSessionId?.();
 			const stream = ctx.modelRegistry.streamSimple(
 				ctx.model,
 				{
 					systemPrompt: CLASSIFIER_SYSTEM_PROMPT,
 					messages: [{ role: "user", content: buildClassifierInput(text.slice(0, 12_000), drawn), timestamp: Date.now() }],
 				},
-				{ reasoning: "minimal", signal },
+				{ reasoning: "minimal", signal, ...(sessionId ? { sessionId } : {}) },
 			);
 			const message = await stream.result();
-			if (!message || message.stopReason === "error" || message.stopReason === "aborted") return null;
-			return parseClassification(assistantText(message));
-		} catch {
+			if (!message || message.stopReason === "error" || message.stopReason === "aborted") {
+				lastClassifierError = String(message?.errorMessage || message?.stopReason || "no response").slice(0, 300);
+				return null;
+			}
+			const parsed = parseClassification(assistantText(message));
+			if (!parsed) lastClassifierError = "unparseable reply";
+			return parsed;
+		} catch (error) {
+			lastClassifierError = (error instanceof Error ? error.message : String(error)).slice(0, 300);
 			return null;
 		}
 	}
@@ -170,7 +185,7 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 		rec.classification ??= classify(ctx, rec.text);
 		const c = await rec.classification;
 		if (c === null) {
-			record({ action: "classifier-unavailable" });
+			record({ action: "classifier-unavailable", error: lastClassifierError });
 			return null;
 		}
 		if (!needsDiagram(c)) {

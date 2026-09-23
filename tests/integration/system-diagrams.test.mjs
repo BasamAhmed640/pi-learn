@@ -36,7 +36,7 @@ function harness(ext, classifierReplies) {
 				};
 			},
 		},
-		sessionManager: { getBranch: () => [] },
+		sessionManager: { getBranch: () => [], getSessionId: () => "sess-123" },
 		ui: { notify() {}, setStatus() {} },
 		hasUI: true,
 		cwd: tmpdir(),
@@ -85,6 +85,7 @@ test("an undiagrammed system explanation holds back its quiz once, then the diag
 	assert.equal(sibling?.block, true, "every gated call of the same message is held back");
 	assert.equal(h.calls.length, 1, "the classifier runs once per message");
 	assert.equal(h.calls[0].options.reasoning, "minimal");
+	assert.equal(h.calls[0].options.sessionId, "sess-123", "providers like opencode-go reject nested calls without the session id");
 	assert.match(h.calls[0].context.systemPrompt, /structural features/i);
 
 	await h.assistant("Here is the loop — follow the arrows from the pancreas out and back.\n\n```mermaid\nflowchart LR\n%% system: Blood-glucose regulation — overview\n  g[\"Blood glucose\"] -->|rises| b[\"Beta cells\"]\n  b -->|insulin| l[\"Liver, muscle\"]\n  l -->|uptake lowers| g\n```", ["q3"]);
