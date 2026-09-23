@@ -46,7 +46,6 @@ import {
 import {
 	buildClassifierInput,
 	CLASSIFIER_SYSTEM_PROMPT,
-	hasMermaidFence,
 	type InvalidDiagram,
 	MIN_PROSE_FOR_AUDIT,
 	missingDiagramBlockReason,
@@ -73,6 +72,7 @@ interface MessageRecord {
 	validation: Promise<InvalidDiagram[]>;
 	quality: Promise<QualityResult>;
 	classification?: Promise<SystemClassification | null>;
+	gateDecision?: Promise<{ reason: string } | null>;
 	/** Set once this message has been held back; every gated call from it gets the same reason. */
 	blockReason?: string;
 	nudged: boolean;
@@ -139,7 +139,7 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 	let audit: SystemDiagramAuditEvent[] = [];
 	const sourceReview = new Map<string, QualityResult>();
 	const persistQuality = new Map<string, "pass" | "repair">();
-	const persistedHashes = new Set<string>();
+	const persistedStatus = new Map<string, "pass" | "repair">();
 
 	const g = globalThis as any;
 	g.__piLearnSystemAudit = g.__piLearnSystemAudit || [];
@@ -185,18 +185,18 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 				}
 				return;
 			}
-			const accepted = new Set<string>();
-			const rejected = new Set<string>();
+			const latest = new Map<string, "pass" | "repair">();
 			for (const entry of ctx.sessionManager?.getEntries?.() ?? []) {
 				if (entry?.type !== "custom" || entry.customType !== "diagram-quality") continue;
-				if (entry.data?.status === "pass") accepted.add(entry.data.hash);
-				else if (entry.data?.status === "repair") rejected.add(entry.data.hash);
+				if (typeof entry.data?.hash === "string" && (entry.data.status === "pass" || entry.data.status === "repair")) {
+					latest.set(entry.data.hash, entry.data.status);
+				}
 			}
 			for (const entry of ctx.sessionManager?.getBranch?.() ?? []) {
 				if (entry?.type !== "message" || entry.message?.role !== "assistant") continue;
 				for (const block of extractMermaidBlocks(assistantText(entry.message))) {
 					const hash = diagramHash(block.source);
-					if (rejected.has(hash) || (accepted.size > 0 && !accepted.has(hash))) continue;
+					if (latest.get(hash) === "repair" || (latest.size > 0 && latest.get(hash) !== "pass")) continue;
 					for (const label of systemDiagramLabels(`\x60\x60\x60mermaid\n${block.source}\n\x60\x60\x60`)) {
 						if (!drawn.includes(label)) drawn.push(label);
 					}
@@ -346,7 +346,7 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 		const diagramVerdict = await reviewPendingDiagrams(forQuiz);
 		if (diagramVerdict) return diagramVerdict;
 		if (rec.nudged || nudgesThisRun >= MAX_NUDGES_PER_RUN) return null;
-		if (hasMermaidFence(rec.text) || proseLength(rec.text) < MIN_PROSE_FOR_AUDIT) return null;
+		if (conceptBlocks(rec.text).length > 0 || proseLength(rec.text) < MIN_PROSE_FOR_AUDIT) return null;
 
 		rec.classification ??= classify(ctx, rec.text);
 		const c = await rec.classification;
@@ -422,9 +422,11 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 		pendingDiagrams.clear();
 		sourceReview.clear();
 		persistQuality.clear();
-		persistedHashes.clear();
+		persistedStatus.clear();
 		for (const entry of ctx.sessionManager?.getEntries?.() ?? []) {
-			if (entry?.type === "custom" && entry.customType === "diagram-quality" && typeof entry.data?.hash === "string") persistedHashes.add(entry.data.hash);
+			if (entry?.type === "custom" && entry.customType === "diagram-quality" && typeof entry.data?.hash === "string" && (entry.data.status === "pass" || entry.data.status === "repair")) {
+				persistedStatus.set(entry.data.hash, entry.data.status);
+			}
 		}
 		shared = { sessionId: sessionIdOf(ctx), byText: new Map(), bySource: new Map() };
 		g.__piLearnDiagramQuality = shared;
@@ -445,6 +447,12 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 		repairsThisRun = 0;
 		qualityReviewsThisRun = 0;
 		qualityRepairsThisRun = 0;
+		for (const [source, result] of sourceReview) {
+			if (result.status === "unavailable") {
+				sourceReview.delete(source);
+				shared.bySource.delete(diagramHash(source));
+			}
+		}
 		audit = [];
 	});
 
@@ -460,7 +468,9 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 		const rec = findRecord(ctx, event.toolCallId);
 		if (!rec) return;
 		if (rec.blockReason) return { block: true, reason: rec.blockReason };
-		const verdict = await review(ctx, rec, true);
+		// Pi may dispatch sibling tool calls together. Share the pending decision so
+		// none can slip past while the first call awaits validation or model review.
+		const verdict = await (rec.gateDecision ??= review(ctx, rec, true));
 		if (!verdict) return;
 		rec.blockReason = verdict.reason;
 		return { block: true, reason: verdict.reason };
@@ -497,10 +507,10 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 	pi.on("agent_settled", async () => {
 		await Promise.all([...pendingDiagrams].map((rec) => rec.quality.catch(() => ({ status: "unavailable", issues: [] }))));
 		for (const [hash, status] of persistQuality) {
-			if (persistedHashes.has(hash)) continue;
+			if (persistedStatus.get(hash) === status) continue;
 			try {
 				pi.appendEntry("diagram-quality", { hash, status });
-				persistedHashes.add(hash);
+				persistedStatus.set(hash, status);
 			} catch { /* audit is best effort */ }
 		}
 		if (audit.length === 0) return;

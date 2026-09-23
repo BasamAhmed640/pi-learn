@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { after, test } from "node:test";
 import { HIDDEN_DIAGRAM_CALLOUT } from "../../extensions/lib/learn-notes.ts";
+import { diagramHash } from "../../extensions/lib/diagram-quality.ts";
 import { createSession } from "../fixtures/md-log/session.mjs";
 import { importPiLoader, repoRoot } from "../helpers/pi.mjs";
 
@@ -134,6 +135,17 @@ test("a connected but false causal edge is rejected once for all questions in th
 	assert.match(JSON.stringify(h.calls[0].context), /Actuator/);
 });
 
+test("concurrent sibling questions share one rejected-diagram decision", async () => {
+	const bad = wrongDiagram(41);
+	const h = await harness({ replies: [issue(bad.line)] });
+	await h.emit("agent_start");
+	await h.assistant(bad.text, ["parallel-q1", "parallel-q2"]);
+	const results = await Promise.all([h.quiz("parallel-q1"), h.quiz("parallel-q2")]);
+	assert.deepEqual(results.map((r) => r?.block), [true, true]);
+	assert.equal(results[0].reason, results[1].reason);
+	assert.equal(h.calls.length, 1);
+});
+
 test("a diagram in one assistant message is reviewed before a quiz in the next message", async () => {
 	const bad = wrongDiagram(2);
 	const h = await harness({ replies: [issue(bad.line)] });
@@ -177,6 +189,34 @@ test("quality review failures fail open, and semantic repairs are capped and res
 	await h.assistant(wrongDiagram(14).text, ["next-run"]);
 	assert.equal((await h.quiz("next-run"))?.block, true, "new run resets the cap");
 	assert.equal(h.calls.length, 6);
+});
+
+test("an unavailable review is retried when a new agent run starts", async () => {
+	const bad = wrongDiagram(42);
+	const h = await harness({ replies: [new Error("temporary provider failure"), accepted] });
+	await h.emit("agent_start");
+	await h.assistant(bad.text, ["first-attempt"]);
+	assert.equal(await h.quiz("first-attempt"), undefined);
+	await h.emit("agent_start");
+	await h.assistant(bad.text, ["second-attempt"]);
+	assert.equal(await h.quiz("second-attempt"), undefined);
+	assert.equal(h.calls.length, 2, "the provider is tried again after the run budget resets");
+});
+
+test("note backfill uses the latest saved quality verdict for an identical diagram", async () => {
+	const source = /\x60\x60\x60mermaid\n([\s\S]*?)\n\x60\x60\x60/.exec(goodDiagram)?.[1];
+	assert.ok(source);
+	for (const [statuses, shouldHide] of [[["repair", "pass"], false], [["pass", "repair"], true]]) {
+		const session = createSession(`latest-${Math.random().toString(36).slice(2)}`);
+		for (const status of statuses) session.custom("diagram-quality", { hash: diagramHash(source), status });
+		session.message({ role: "assistant", content: [{ type: "text", text: goodDiagram }] });
+		const h = await harness({ withNote: true, session });
+		const note = join(h.dir, "latest.md");
+		writeFileSync(note, "");
+		await h.extensions[1].commands.get("md-log").handler(note, h.ctx);
+		const written = readFileSync(note, "utf8");
+		assert.equal(written.includes(HIDDEN_DIAGRAM_CALLOUT), shouldHide, `latest status: ${statuses.at(-1)}`);
+	}
 });
 
 test("md-log hides a rejected diagram but shows an accepted repair, without a blocked quiz callout", async () => {

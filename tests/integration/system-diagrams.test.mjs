@@ -94,6 +94,16 @@ test("an undiagrammed system explanation holds back its quiz once, then the diag
 	assert.equal(h.calls.length, 2, "the new concept diagram receives one semantic quality review");
 });
 
+test("a lesson-plan dependency map does not satisfy the concept-diagram requirement", async () => {
+	const ext = await load();
+	const h = harness(ext, [verdict("clearly")]);
+	await h.emit("agent_start", {});
+	await h.assistant(`${LONG_SYSTEM_PROSE}\n\n\x60\x60\x60mermaid\nflowchart LR\n%% dependency-map\n  a["Food"] --> b["Hormones"]\n  b --> c["Review"]\n\x60\x60\x60`, ["plan-only"]);
+	const result = await h.quiz("plan-only");
+	assert.equal(result?.block, true);
+	assert.equal(h.calls.length, 1, "the missing-diagram classifier sees prose with only a dependency map");
+});
+
 test("non-systems, short probes and already-covered systems pass without a diagram", async () => {
 	const ext = await load();
 	const h = harness(ext, [JSON.stringify({ teaches: true, concept: "prime number", features: [], verdict: "not", covered: false }), verdict("clearly", { covered: true })]);

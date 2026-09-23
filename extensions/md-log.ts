@@ -256,22 +256,26 @@ export default function mdLog(pi: ExtensionAPI) {
 		const fences = findMermaidFences(text).filter((f) => !f.hidden);
 		if (fences.length === 0) return text;
 		const hash = (source: string) => createHash("sha256").update(source).digest("hex");
-		const rejected = new Set<string>();
+		const qualityStatus = new Map<string, "pass" | "repair">();
 		for (const entry of ctx.sessionManager?.getEntries?.() ?? []) {
-			if (entry?.type === "custom" && entry.customType === "diagram-quality" && entry.data?.status === "repair") rejected.add(entry.data.hash);
+			if (entry?.type === "custom" && entry.customType === "diagram-quality" && typeof entry.data?.hash === "string" && (entry.data.status === "pass" || entry.data.status === "repair")) {
+				qualityStatus.set(entry.data.hash, entry.data.status);
+			}
 		}
 		const shared = (globalThis as any).__piLearnDiagramQuality;
 		if (shared?.sessionId === sessionIdOf(ctx)) {
 			try {
 				const quality = await shared.byText?.get(text);
-				for (const issue of quality?.issues ?? []) rejected.add(hash(issue.source));
+				for (const issue of quality?.issues ?? []) qualityStatus.set(hash(issue.source), "repair");
 			} catch { /* a reviewer failure must not stop note writing */ }
-			for (const [sourceHash, status] of shared.bySource ?? []) if (status === "repair") rejected.add(sourceHash);
+			for (const [sourceHash, status] of shared.bySource ?? []) {
+				if (status === "pass" || status === "repair") qualityStatus.set(sourceHash, status);
+			}
 		}
 		const validator = await loadValidator();
 		const invalid: MermaidFence[] = [];
 		for (const f of fences) {
-			if (rejected.has(hash(f.source))) { invalid.push(f); continue; }
+			if (qualityStatus.get(hash(f.source)) === "repair") { invalid.push(f); continue; }
 			if (validator) {
 				const v = await validate(validator, f.source);
 				if (v.status === "invalid") invalid.push(f);

@@ -13,7 +13,9 @@ This fork adds:
   (see [Systems get a Mermaid diagram](skills/teach/SKILL.md)).
 - **Checks that make the default hold.** The rule is injected into every run. Every diagram is parsed with
   Mermaid 11.13.0, the version Obsidian bundles, and broken ones are sent back for a redraw. A semantic check holds a
-  quiz back if the explanation it tests describes a system but has no diagram yet.
+  quiz back if the explanation it tests describes a system but has no diagram yet. A bounded quality check rejects
+  disconnected mapping pictures and asks a model to flag definite causal errors before the next quiz. Reviewer
+  failures fail open; see the manual findings in [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md).
 - **Obsidian sessions you can come back to.** `/learn <topic>` creates and links a note. Each pi session gets its own
   section in the note. Relinking never destroys content. A `Learn Index` note links every topic, and
   `/learn-resume` continues a lesson from the note alone.
