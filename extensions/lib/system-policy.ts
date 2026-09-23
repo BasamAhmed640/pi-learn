@@ -31,11 +31,11 @@ ${featureList}
 Judge the STRUCTURE of the concept, not its vocabulary: the word "system" is neither needed nor enough. Blood-glucose regulation is a system; "the metric system" (a set of unit definitions) is not.
 
 Decision rule — classify every node you establish, and the lesson goal:
-- clearly NOT a system (atomic, purely definitional, one relation with nothing to trace) → no diagram; never manufacture one.
+- clearly NOT a system (atomic, purely definitional, one relation with nothing to trace) → no diagram; never manufacture one. Definitions and their clauses, a classification or case split by one criterion, a formula, a proof or derivation chain, and a single cause→effect are NOT systems, even when you could draw boxes for them — the dependency map already shows the reasoning. Never tag such a picture as a system.
 - POSSIBLY a system (2 features, or the relationships are thin) → diagram strongly preferred: draw it.
 - CLEARLY a system (2+ features and the relationships carry the understanding) → diagram expected: always draw it.
 - COMPLEX or central system (many parts, or it is the lesson goal) → diagram required: a high-level overview first, then a zoom-in diagram for each subsystem whose inner parts matter.
-When unsure, bias toward drawing. Never wait for the learner to ask, never ask whether he wants one, never drop a due diagram to keep the reply short.
+When unsure whether interacting parts are really there, bias toward drawing — the bias is for borderline systems, not for definitional topics. Never wait for the learner to ask, never ask whether he wants one, never drop a due diagram to keep the reply short.
 
 Placement: in the Establish step of the node that introduces the system (or the part being added), before the details, then explain against it ("follow the arrow from X to Y"). Prose says WHY each edge exists; the diagram shows WHERE everything sits. When a later node adds parts to a system already drawn, redraw it with the addition. The Phase-2 dependency map is the lesson plan, not a concept diagram — it never replaces a system diagram.
 
@@ -46,7 +46,7 @@ Syntax — Obsidian renders Mermaid 11.13, so the diagram must parse:
 - Line 1: the diagram type. Line 2: a tag comment — \`%% system: <system name> — overview\` or \`%% system: <system name> — zoom: <part>\`; the Phase-2 plan uses \`%% dependency-map\`.
 - Short alphanumeric node ids (cpu, alu, ctrl2) with the words in quoted labels: alu["ALU (arithmetic)"]. Quote every label that has spaces or punctuation — unquoted ( ) [ ] { } " inside a label is the #1 parse error; so are empty labels, labels starting with / and labels containing @. Never use end, graph, subgraph, class, style or click as a node id.
 - Flowchart arrows are --> , --- , -.-> , ==> with labels as -- text --> or -->|text| (never ->, →, or "A --> B: text"). sequenceDiagram messages need a colon (A->>B: text) and no ";". State ids have no hyphens. erDiagram relationships always carry a label. Comments go on their own line, never after code.
-- Labels of at most ~5 words; <br/> for a line break; no LaTeX, no %%{init}%% theming, no click/links inside Mermaid.
+- Labels of at most ~5 words; <br/> for a line break (never \n); no LaTeX, no %%{init}%% theming, no click/links inside Mermaid.
 - At most ~12 nodes per diagram; split into overview + zoom-ins instead of cramming.
 - Correctness first: trace every arrow against your prose before sending. Every diagram is validated; if one fails you will be told — redraw it correctly.
 
@@ -73,7 +73,7 @@ A system is any concept made of multiple interacting parts whose relationships m
 ${featureList}
 
 Verdicts:
-- "not": atomic, purely definitional, a single fact/property/formula, or one relation with nothing to trace.
+- "not": atomic, purely definitional, a single fact/property/formula, or one relation with nothing to trace. Also "not": a definition and its clauses, a classification or case split by one criterion, a proof or derivation chain, a single cause→effect.
 - "possibly": two features are present but the relationships are thin.
 - "clearly": two or more features and the relationships between parts carry the understanding.
 - "complex": many parts, several subsystems, or layered levels.
