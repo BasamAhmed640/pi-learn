@@ -2,7 +2,7 @@
  * system-diagrams — make "systems get a Mermaid diagram" a default part of the
  * teaching workflow instead of something the tutor has to remember.
  *
- * Three layers, cheapest first:
+ * Four layers, cheapest first:
  *
  *   1. Policy. Every run gets the compact system-diagram rule as a structured
  *      system-prompt section (the full teaching version lives in the teach skill),
@@ -19,13 +19,30 @@
  *      instructions to add the diagram first, so the note reads
  *      explanation → diagram → quiz. At settle, one continuation is requested.
  *
- * Everything is bounded (one nudge per message, 3 per run, 2 repairs per run)
+ *   4. Diagram quality. Disconnected one-edge mapping pictures are rejected
+ *      structurally. Other new concept diagrams receive one batched, cached
+ *      model review for definite causal errors before the next question.
+ *
+ * Everything is bounded (one nudge per message, 3 missing-diagram nudges,
+ * 2 syntax repairs, 8 quality reviews and 2 quality repairs per run)
  * and fails open: a classifier or validator problem never blocks teaching.
  * Set PI_LEARN_SYSTEM_DIAGRAMS=off to disable the whole extension.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { existsSync, readFileSync } from "node:fs";
 import { describeMermaid, extractMermaidBlocks, validateMermaid } from "./lib/mermaid.ts";
+import { findMermaidFences } from "./lib/learn-notes.ts";
+import {
+	buildQualityReviewInput,
+	diagramHash,
+	disconnectedMapping,
+	mappingIssue,
+	parseQualityReview,
+	QUALITY_REVIEW_SYSTEM_PROMPT,
+	type ConceptBlock,
+	type QualityResult,
+} from "./lib/diagram-quality.ts";
 import {
 	buildClassifierInput,
 	CLASSIFIER_SYSTEM_PROMPT,
@@ -45,6 +62,8 @@ import {
 const GATED_TOOLS = new Set(["quiz", "ask_user_question"]);
 const MAX_NUDGES_PER_RUN = 3;
 const MAX_REPAIRS_PER_RUN = 2;
+const MAX_QUALITY_REVIEWS_PER_RUN = 8;
+const MAX_QUALITY_REPAIRS_PER_RUN = 2;
 const CLASSIFIER_TIMEOUT_MS = 30_000;
 const PROMPT_SECTION = "system_diagrams";
 
@@ -52,20 +71,23 @@ interface MessageRecord {
 	text: string;
 	toolCallIds: string[];
 	validation: Promise<InvalidDiagram[]>;
+	quality: Promise<QualityResult>;
 	classification?: Promise<SystemClassification | null>;
 	/** Set once this message has been held back; every gated call from it gets the same reason. */
 	blockReason?: string;
 	nudged: boolean;
 	repaired: boolean;
+	qualityNudged: boolean;
 }
 
 export interface SystemDiagramAuditEvent {
 	at: string;
-	action: "blocked-missing" | "blocked-invalid" | "followup-missing" | "followup-invalid" | "pass" | "classifier-unavailable";
+	action: "blocked-missing" | "blocked-invalid" | "blocked-quality" | "followup-missing" | "followup-invalid" | "followup-quality" | "pass" | "classifier-unavailable" | "quality-pass" | "quality-unavailable";
 	tool?: string;
 	classification?: SystemClassification | null;
 	invalid?: InvalidDiagram[];
 	error?: string;
+	quality?: QualityResult;
 }
 
 function assistantText(message: any): string {
@@ -108,13 +130,27 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 
 	const records = new Map<string, MessageRecord>(); // toolCallId → record
 	let lastRecord: MessageRecord | null = null;
+	const pendingDiagrams = new Set<MessageRecord>();
 	let drawn: string[] = [];
 	let nudgesThisRun = 0;
 	let repairsThisRun = 0;
+	let qualityReviewsThisRun = 0;
+	let qualityRepairsThisRun = 0;
 	let audit: SystemDiagramAuditEvent[] = [];
+	const sourceReview = new Map<string, QualityResult>();
+	const persistQuality = new Map<string, "pass" | "repair">();
+	const persistedHashes = new Set<string>();
 
 	const g = globalThis as any;
 	g.__piLearnSystemAudit = g.__piLearnSystemAudit || [];
+	// md-log reads these promises before writing assistant text to the Obsidian note.
+	// The registry is reset for each session and keyed by exact assistant text/source.
+	let shared: {
+		sessionId: string;
+		byText: Map<string, Promise<QualityResult>>;
+		bySource: Map<string, "pass" | "repair" | "unavailable">;
+	} = { sessionId: "", byText: new Map(), bySource: new Map() };
+	g.__piLearnDiagramQuality = shared;
 
 	function record(event: Omit<SystemDiagramAuditEvent, "at">): void {
 		const entry = { at: new Date().toISOString(), ...event };
@@ -122,13 +158,48 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 		g.__piLearnSystemAudit.push(entry);
 	}
 
+	function sessionIdOf(ctx: any): string {
+		return String(ctx.sessionManager?.getSessionId?.() ?? ctx.sessionManager?.getHeader?.()?.id ?? "unknown-session");
+	}
+
+	function linkedNote(ctx: any): string | null {
+		let file: string | null = null;
+		for (const entry of ctx.sessionManager?.getEntries?.() ?? []) {
+			if (entry?.type === "custom" && entry.customType === "md-log") file = entry.data?.file ?? null;
+		}
+		return file;
+	}
+
 	function rebuildDrawn(ctx: any): void {
 		drawn = [];
 		try {
+			const note = linkedNote(ctx);
+			if (note && existsSync(note)) {
+				for (const fence of findMermaidFences(readFileSync(note, "utf8"))) {
+					if (fence.hidden) continue;
+					const tag: any = describeMermaid(fence.source).tag;
+					if (tag?.kind !== "system") continue;
+					const level = tag.level === "zoom" ? ` (zoom${tag.subsystem ? `: ${tag.subsystem}` : ""})` : tag.level ? ` (${tag.level})` : "";
+					const label = `${tag.label || "(untitled system)"}${level}`;
+					if (!drawn.includes(label)) drawn.push(label);
+				}
+				return;
+			}
+			const accepted = new Set<string>();
+			const rejected = new Set<string>();
+			for (const entry of ctx.sessionManager?.getEntries?.() ?? []) {
+				if (entry?.type !== "custom" || entry.customType !== "diagram-quality") continue;
+				if (entry.data?.status === "pass") accepted.add(entry.data.hash);
+				else if (entry.data?.status === "repair") rejected.add(entry.data.hash);
+			}
 			for (const entry of ctx.sessionManager?.getBranch?.() ?? []) {
 				if (entry?.type !== "message" || entry.message?.role !== "assistant") continue;
-				for (const label of systemDiagramLabels(assistantText(entry.message))) {
-					if (!drawn.includes(label)) drawn.push(label);
+				for (const block of extractMermaidBlocks(assistantText(entry.message))) {
+					const hash = diagramHash(block.source);
+					if (rejected.has(hash) || (accepted.size > 0 && !accepted.has(hash))) continue;
+					for (const label of systemDiagramLabels(`\x60\x60\x60mermaid\n${block.source}\n\x60\x60\x60`)) {
+						if (!drawn.includes(label)) drawn.push(label);
+					}
 				}
 			}
 		} catch {
@@ -170,15 +241,110 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 		}
 	}
 
-	/** Decide whether the message a gated call belongs to must be held back. */
-	async function review(ctx: any, rec: MessageRecord, forQuiz: boolean): Promise<{ reason: string; kind: "invalid" | "missing"; c?: SystemClassification } | null> {
-		const invalid = await rec.validation;
-		if (invalid.length > 0 && !rec.repaired && repairsThisRun < MAX_REPAIRS_PER_RUN) {
-			rec.repaired = true;
-			repairsThisRun++;
-			record({ action: forQuiz ? "blocked-invalid" : "followup-invalid", invalid });
-			return { reason: repairInstructions(invalid, forQuiz), kind: "invalid" };
+	function conceptBlocks(text: string): ConceptBlock[] {
+		return extractMermaidBlocks(text).flatMap((block) => {
+			const tag: any = describeMermaid(block.source).tag;
+			// The dependency map is a lesson plan. Every other Mermaid block is a
+			// concept diagram, including an untagged one the tutor forgot to label.
+			return tag?.kind === "dependency-map" ? [] : [{ source: block.source, label: String(tag?.label || "untagged concept diagram") }];
+		});
+	}
+
+	function priorLessonText(ctx: any): string {
+		try {
+			return (ctx.sessionManager?.getBranch?.() ?? [])
+				.filter((entry: any) => entry?.type === "message" && entry.message?.role === "assistant")
+				.slice(-2)
+				.map((entry: any) => assistantText(entry.message))
+				.join("\n\n")
+				.slice(-3500);
+		} catch { return ""; }
+	}
+
+	async function modelQualityReview(ctx: any, text: string, blocks: ConceptBlock[]): Promise<QualityResult> {
+		if (qualityReviewsThisRun >= MAX_QUALITY_REVIEWS_PER_RUN) return { status: "unavailable", issues: [], reason: "quality review budget exhausted" };
+		if (!ctx?.model || typeof ctx?.modelRegistry?.streamSimple !== "function") return { status: "unavailable", issues: [], reason: "model reviewer unavailable" };
+		qualityReviewsThisRun++;
+		try {
+			const sessionId = ctx.sessionManager?.getSessionId?.();
+			const stream = ctx.modelRegistry.streamSimple(
+				ctx.model,
+				{
+					systemPrompt: QUALITY_REVIEW_SYSTEM_PROMPT,
+					messages: [{ role: "user", content: buildQualityReviewInput(text, blocks, priorLessonText(ctx)), timestamp: Date.now() }],
+				},
+				{ reasoning: "minimal", signal: AbortSignal.timeout(CLASSIFIER_TIMEOUT_MS), ...(sessionId ? { sessionId } : {}) },
+			);
+			const message = await stream.result();
+			if (!message || message.stopReason === "error" || message.stopReason === "aborted") return { status: "unavailable", issues: [], reason: "model reviewer failed" };
+			return parseQualityReview(assistantText(message), blocks);
+		} catch {
+			return { status: "unavailable", issues: [], reason: "model reviewer failed" };
 		}
+	}
+
+	async function evaluateQuality(ctx: any, text: string, blocks: ConceptBlock[]): Promise<QualityResult> {
+		if (blocks.length === 0) return { status: "pass", issues: [] };
+		const newBlocks: ConceptBlock[] = [];
+		for (const [i, block] of blocks.entries()) {
+			if (sourceReview.has(block.source)) continue;
+			if (disconnectedMapping(block.source)) sourceReview.set(block.source, { status: "repair", issues: [mappingIssue(block, i + 1)] });
+			else newBlocks.push(block);
+		}
+		if (newBlocks.length > 0) {
+			const review = await modelQualityReview(ctx, text, newBlocks);
+			for (const block of newBlocks) {
+				const issues = review.issues.filter((issue) => issue.source === block.source);
+				sourceReview.set(block.source, { status: review.status === "unavailable" ? "unavailable" : issues.length ? "repair" : "pass", issues, reason: review.reason });
+			}
+		}
+		const issues = blocks.flatMap((block, i) => (sourceReview.get(block.source)?.issues ?? []).map((issue) => ({ ...issue, index: i + 1 })));
+		const unavailable = blocks.some((block) => sourceReview.get(block.source)?.status === "unavailable");
+		for (const block of blocks) {
+			const status = sourceReview.get(block.source)?.status;
+			if (!status) continue;
+			shared.bySource.set(diagramHash(block.source), status);
+			if (status === "pass" || status === "repair") persistQuality.set(diagramHash(block.source), status);
+		}
+		const result: QualityResult = { status: issues.length ? "repair" : unavailable ? "unavailable" : "pass", issues, reason: unavailable ? "one or more diagrams could not be reviewed" : undefined };
+		if (result.status === "pass") record({ action: "quality-pass", quality: result });
+		else if (result.status === "unavailable") record({ action: "quality-unavailable", quality: result });
+		return result;
+	}
+
+	function qualityRepairReason(result: QualityResult, forQuiz: boolean): string {
+		const details = result.issues.map((issue) => `Diagram ${issue.index}: ${issue.problem} Line: ${issue.line} Fix: ${issue.fix}`).join("\n");
+		return `[system-diagram quality check] A concept diagram needs a correction before the learner is quizzed.\n${details}\nSend a corrected diagram with the proper %% system: tag and a short explanation of the corrected flow. Do not repeat the full lesson.${forQuiz ? " Then ask the same question again, unchanged." : ""}`;
+	}
+
+	/** Decide whether any diagram since the last quiz must be redrawn first. */
+	async function reviewPendingDiagrams(forQuiz: boolean): Promise<{ reason: string; kind: "invalid" | "quality" } | null> {
+		for (const candidate of [...pendingDiagrams]) {
+			const invalid = await candidate.validation;
+			if (invalid.length > 0 && !candidate.repaired && repairsThisRun < MAX_REPAIRS_PER_RUN) {
+				candidate.repaired = true;
+				repairsThisRun++;
+				pendingDiagrams.delete(candidate);
+				record({ action: forQuiz ? "blocked-invalid" : "followup-invalid", invalid });
+				return { reason: repairInstructions(invalid, forQuiz), kind: "invalid" };
+			}
+			const quality = await candidate.quality;
+			if (quality.status === "repair" && !candidate.qualityNudged && qualityRepairsThisRun < MAX_QUALITY_REPAIRS_PER_RUN) {
+				candidate.qualityNudged = true;
+				qualityRepairsThisRun++;
+				pendingDiagrams.delete(candidate);
+				record({ action: forQuiz ? "blocked-quality" : "followup-quality", quality });
+				return { reason: qualityRepairReason(quality, forQuiz), kind: "quality" };
+			}
+			pendingDiagrams.delete(candidate);
+		}
+		return null;
+	}
+
+	/** Decide whether the message a gated call belongs to must be held back. */
+	async function review(ctx: any, rec: MessageRecord, forQuiz: boolean): Promise<{ reason: string; kind: "invalid" | "missing" | "quality"; c?: SystemClassification } | null> {
+		const diagramVerdict = await reviewPendingDiagrams(forQuiz);
+		if (diagramVerdict) return diagramVerdict;
 		if (rec.nudged || nudgesThisRun >= MAX_NUDGES_PER_RUN) return null;
 		if (hasMermaidFence(rec.text) || proseLength(rec.text) < MIN_PROSE_FOR_AUDIT) return null;
 
@@ -207,7 +373,7 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 			for (let i = branch.length - 1; i >= 0; i--) {
 				const msg = branch[i]?.type === "message" ? branch[i].message : null;
 				if (msg?.role !== "assistant" || !toolCallIds(msg).includes(toolCallId)) continue;
-				return track(msg);
+				return track(msg, ctx);
 			}
 		} catch {
 			// fall through
@@ -215,17 +381,37 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 		return lastRecord;
 	}
 
-	function track(message: any): MessageRecord {
+	function track(message: any, ctx: any): MessageRecord {
 		const text = assistantText(message);
+		const blocks = conceptBlocks(text);
+		const newLabels = new Set(systemDiagramLabels(text));
+		if (newLabels.size > 0) {
+			// A redraw with the same tag supersedes a still-pending bad draft even
+			// when the tutor corrected it before attempting the quiz.
+			for (const older of pendingDiagrams) {
+				if (systemDiagramLabels(older.text).some((label) => newLabels.has(label))) pendingDiagrams.delete(older);
+			}
+		}
+		const validation = invalidDiagrams(text).catch(() => []);
+		const quality = validation.then((invalid) => evaluateQuality(ctx, text, blocks.filter((block) => !invalid.some((bad) => bad.source === block.source))));
 		const rec: MessageRecord = {
 			text,
 			toolCallIds: toolCallIds(message),
-			validation: invalidDiagrams(text).catch(() => []),
+			validation,
+			quality,
 			nudged: false,
 			repaired: false,
+			qualityNudged: false,
 		};
 		for (const id of rec.toolCallIds) records.set(id, rec);
-		for (const label of systemDiagramLabels(text)) if (!drawn.includes(label)) drawn.push(label);
+		if (extractMermaidBlocks(text).length > 0) pendingDiagrams.add(rec);
+		shared.byText.set(text, quality);
+		void Promise.all([validation, quality]).then(([invalid]) => {
+			for (const block of blocks) {
+				if (invalid.some((bad) => bad.source === block.source) || sourceReview.get(block.source)?.status === "repair") continue;
+				for (const label of systemDiagramLabels(`\x60\x60\x60mermaid\n${block.source}\n\x60\x60\x60`)) if (!drawn.includes(label)) drawn.push(label);
+			}
+		}).catch(() => undefined);
 		lastRecord = rec;
 		return rec;
 	}
@@ -233,26 +419,40 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		records.clear();
 		lastRecord = null;
+		pendingDiagrams.clear();
+		sourceReview.clear();
+		persistQuality.clear();
+		persistedHashes.clear();
+		for (const entry of ctx.sessionManager?.getEntries?.() ?? []) {
+			if (entry?.type === "custom" && entry.customType === "diagram-quality" && typeof entry.data?.hash === "string") persistedHashes.add(entry.data.hash);
+		}
+		shared = { sessionId: sessionIdOf(ctx), byText: new Map(), bySource: new Map() };
+		g.__piLearnDiagramQuality = shared;
 		rebuildDrawn(ctx);
 		// Warm the Mermaid worker so the first real diagram doesn't pay the cold start.
 		void validateMermaid("flowchart LR\n  a --> b").catch(() => undefined);
 	});
 
-	pi.on("before_agent_start", async (event) => {
+	pi.on("before_agent_start", async (event, ctx) => {
+		// /learn and /learn-resume can link a note after session_start. The note is
+		// the resume source of truth: rejected diagrams are hidden there.
+		if (linkedNote(ctx)) rebuildDrawn(ctx);
 		event.systemPromptOptions.sections[PROMPT_SECTION] = SYSTEM_DIAGRAM_POLICY;
 	});
 
 	pi.on("agent_start", async () => {
 		nudgesThisRun = 0;
 		repairsThisRun = 0;
+		qualityReviewsThisRun = 0;
+		qualityRepairsThisRun = 0;
 		audit = [];
 	});
 
-	pi.on("message_end", async (event) => {
+	pi.on("message_end", async (event, ctx) => {
 		const message: any = event.message;
 		if (message?.role !== "assistant") return;
 		// Validation starts now; the gate awaits it, so a quiz never outruns it.
-		track(message);
+		track(message, ctx);
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
@@ -268,6 +468,13 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 
 	pi.on("agent_before_settle", async (event, ctx) => {
 		if (event.outcome !== "completed" || !lastRecord) return;
+		const diagramVerdict = await reviewPendingDiagrams(false);
+		if (diagramVerdict) {
+			return {
+				entries: [...event.entries, { type: "custom_message", customType: "system-diagram-check", content: diagramVerdict.reason, display: false, details: { kind: diagramVerdict.kind } }],
+				continue: true,
+			};
+		}
 		// Only the run's closing message: gated calls were reviewed when they were made.
 		if (lastRecord.toolCallIds.length > 0) return;
 		const verdict = await review(ctx, lastRecord, false);
@@ -288,6 +495,14 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 	});
 
 	pi.on("agent_settled", async () => {
+		await Promise.all([...pendingDiagrams].map((rec) => rec.quality.catch(() => ({ status: "unavailable", issues: [] }))));
+		for (const [hash, status] of persistQuality) {
+			if (persistedHashes.has(hash)) continue;
+			try {
+				pi.appendEntry("diagram-quality", { hash, status });
+				persistedHashes.add(hash);
+			} catch { /* audit is best effort */ }
+		}
 		if (audit.length === 0) return;
 		try {
 			pi.appendEntry("system-diagram-check", { events: audit });

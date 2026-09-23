@@ -9,10 +9,10 @@
   ],
   "pi": {
     "extensions": [
+      "./extensions/system-diagrams.ts",
       "./extensions/md-log.ts",
       "./extensions/quiz.ts",
       "./extensions/ask-user-question.ts",
-      "./extensions/system-diagrams.ts",
       "./extensions/visual-tools/index.ts"
     ],
     "skills": [

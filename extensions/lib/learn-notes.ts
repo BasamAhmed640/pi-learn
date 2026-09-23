@@ -27,7 +27,7 @@ export const INDEX_BASENAME = "Learn Index";
 export const INDEX_FILENAME = `${INDEX_BASENAME}.md`;
 
 export const HIDDEN_DIAGRAM_CALLOUT =
-	"> [!warning] Diagram hidden — it did not render (the tutor was asked to redraw it)";
+	"> [!warning] Diagram hidden — it needs a redraw (the tutor was asked to correct it)";
 
 // ─── Dates (local time) ──────────────────────────────────────────────────────
 

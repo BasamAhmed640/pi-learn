@@ -90,7 +90,8 @@ test("an undiagrammed system explanation holds back its quiz once, then the diag
 
 	await h.assistant("Here is the loop — follow the arrows from the pancreas out and back.\n\n```mermaid\nflowchart LR\n%% system: Blood-glucose regulation — overview\n  g[\"Blood glucose\"] -->|rises| b[\"Beta cells\"]\n  b -->|insulin| l[\"Liver, muscle\"]\n  l -->|uptake lowers| g\n```", ["q3"]);
 	assert.equal(await h.quiz("q3"), undefined);
-	assert.equal(h.calls.length, 1, "a message with a diagram is never sent to the classifier");
+	assert.equal(h.calls.filter((c) => /concepts that are systems must be shown with a diagram/i.test(c.context.systemPrompt)).length, 1, "a message with a diagram is never sent to the missing-diagram classifier");
+	assert.equal(h.calls.length, 2, "the new concept diagram receives one semantic quality review");
 });
 
 test("non-systems, short probes and already-covered systems pass without a diagram", async () => {

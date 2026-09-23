@@ -22,7 +22,8 @@
  *     with `%% learn-session: <id> %%`. Linking never destroys content: a re-link
  *     regenerates only this session's section; otherwise a new section is appended.
  *   - pi-learn frontmatter (learn-topic/status/created/updated/sessions).
- *   - Mermaid blocks that fail validation are hidden in the note (source kept in a %% comment).
+ *   - Mermaid blocks that fail syntax or quality checks are hidden in the note
+ *     (source kept in a %% comment).
  *   - `Learn Index.md` in the notes dir lists every learning note.
  *
  * Commands:
@@ -35,6 +36,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
@@ -249,16 +251,31 @@ export default function mdLog(pi: ExtensionAPI) {
 		return cached;
 	}
 
-	/** Assistant text as it should appear in the note: invalid mermaid blocks hidden. */
-	async function noteSafe(text: string): Promise<string> {
+	/** Assistant text as it should appear in the note: rejected Mermaid blocks hidden. */
+	async function noteSafe(text: string, ctx: any): Promise<string> {
 		const fences = findMermaidFences(text).filter((f) => !f.hidden);
 		if (fences.length === 0) return text;
+		const hash = (source: string) => createHash("sha256").update(source).digest("hex");
+		const rejected = new Set<string>();
+		for (const entry of ctx.sessionManager?.getEntries?.() ?? []) {
+			if (entry?.type === "custom" && entry.customType === "diagram-quality" && entry.data?.status === "repair") rejected.add(entry.data.hash);
+		}
+		const shared = (globalThis as any).__piLearnDiagramQuality;
+		if (shared?.sessionId === sessionIdOf(ctx)) {
+			try {
+				const quality = await shared.byText?.get(text);
+				for (const issue of quality?.issues ?? []) rejected.add(hash(issue.source));
+			} catch { /* a reviewer failure must not stop note writing */ }
+			for (const [sourceHash, status] of shared.bySource ?? []) if (status === "repair") rejected.add(sourceHash);
+		}
 		const validator = await loadValidator();
-		if (!validator) return text;
 		const invalid: MermaidFence[] = [];
 		for (const f of fences) {
-			const v = await validate(validator, f.source);
-			if (v.status === "invalid") invalid.push(f);
+			if (rejected.has(hash(f.source))) { invalid.push(f); continue; }
+			if (validator) {
+				const v = await validate(validator, f.source);
+				if (v.status === "invalid") invalid.push(f);
+			}
 		}
 		return invalid.length > 0 ? hideMermaidBlocks(text, invalid) : text;
 	}
@@ -403,7 +420,7 @@ export default function mdLog(pi: ExtensionAPI) {
 
 	// --- Event handlers ---
 
-	pi.on("message_end", async (event, _ctx) => {
+	pi.on("message_end", async (event, ctx) => {
 		if (!logFile) return;
 		const msg = event.message;
 		if (!msg || !("role" in msg)) return;
@@ -419,7 +436,7 @@ export default function mdLog(pi: ExtensionAPI) {
 			const text = assistantText(msg);
 			if (!text) return;
 			// Validate inside the lock so a slow validator can't reorder blocks.
-			await withLock(async () => appendToFile(assistantBlock(await noteSafe(text))));
+			await withLock(async () => appendToFile(assistantBlock(await noteSafe(text, ctx))));
 			return;
 		}
 		// toolResult messages are handled by the tool_result event (for QA tools).
@@ -542,7 +559,7 @@ export default function mdLog(pi: ExtensionAPI) {
 					}
 				}
 				const text = assistantText(msg);
-				if (text) blocks.push(assistantBlock(await noteSafe(text)));
+				if (text) blocks.push(assistantBlock(await noteSafe(text, ctx)));
 				continue;
 			}
 
