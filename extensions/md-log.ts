@@ -426,20 +426,22 @@ export default function mdLog(pi: ExtensionAPI) {
 		// Custom messages (e.g. the hidden learn-resume brief) are never logged.
 	});
 
-	// ask_user_question never shuffles its options, so the tool_call args are
-	// already the true display order — safe to write the question live, before
-	// the user answers.
-	pi.on("tool_call", async (event, _ctx) => {
-		if (!logFile) return;
-		const toolName = (event as any).toolName;
-		if (toolName !== "ask_user_question") return;
-		const input = (event as any).input || {};
-		const question: string = input.question || "";
-		const context: string | undefined = input.details?.trim() || undefined;
-		const options: Array<{ label: string }> = Array.isArray(input.options) ? input.options : [];
+	// ask_user_question never shuffles its options, so its args are already the
+	// true display order. The question is written live when the tool actually
+	// starts executing (its first onUpdate), not at tool_call: another extension
+	// (system-diagrams) may still block the call at tool_call, and a blocked
+	// question must never appear in the note. If an implementation emits no
+	// update, the question is written together with its answer on tool_result.
+	const loggedAskQuestion = new Set<string>();
+	async function logAskQuestion(toolCallId: string, input: any): Promise<void> {
+		if (loggedAskQuestion.has(toolCallId)) return;
+		loggedAskQuestion.add(toolCallId);
+		const question: string = input?.question || "";
+		const context: string | undefined = input?.details?.trim() || undefined;
+		const options: Array<{ label: string }> = Array.isArray(input?.options) ? input.options : [];
 		const block = questionCallout("Question", question, context, options);
 		await withLock(() => appendToFile(block));
-	});
+	}
 
 	// quiz DOES shuffle its options inside execute(), so the tool_call args are
 	// the pre-shuffle author order — NOT what the user is shown. quiz emits an
@@ -452,6 +454,10 @@ export default function mdLog(pi: ExtensionAPI) {
 	pi.on("tool_execution_update", async (event, _ctx) => {
 		if (!logFile) return;
 		const toolName = (event as any).toolName;
+		if (toolName === "ask_user_question") {
+			await logAskQuestion((event as any).toolCallId, (event as any).args || {});
+			return;
+		}
 		if (toolName !== "quiz") return;
 		const toolCallId = (event as any).toolCallId;
 		if (loggedQuizQuestion.has(toolCallId)) return;
@@ -472,6 +478,9 @@ export default function mdLog(pi: ExtensionAPI) {
 		if (!QA_TOOLS.has(toolName)) return;
 		const details = (event as any).details;
 		if (isBlockedResult((event as any).isError, details)) return;
+		if (toolName === "ask_user_question") {
+			await logAskQuestion((event as any).toolCallId, (event as any).input || {});
+		}
 		const block = toolName === "quiz"
 			? answerCalloutQuiz(details)
 			: answerCalloutAsk(details);

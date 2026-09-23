@@ -24,7 +24,9 @@ const ALLOWED_LEVELS = new Set([undefined, "info", "warning", "error"]);
 
 let loader;
 let root;
-let originalExtension; // md-log.ts from git HEAD (Amos's original)
+// Amos Blomqvist's last upstream commit (amosblomqvist/learn "updated thumbnail"); the fork builds on it.
+const UPSTREAM_BASELINE = "7cfd894";
+let originalExtension; // md-log.ts from Amos's upstream baseline commit
 let stubExtension; // real md-log.ts copied next to stub lib/mermaid.ts + lib/obsidian-style.ts
 const savedEnv = process.env.PI_LEARN_NOTES_DIR;
 
@@ -35,7 +37,7 @@ before(async () => {
 	const origDir = join(root, "orig-ext");
 	mkdirSync(origDir);
 	originalExtension = join(origDir, "md-log.ts");
-	writeFileSync(originalExtension, execFileSync("git", ["show", "HEAD:extensions/md-log.ts"], { cwd: repoRoot, encoding: "utf8" }));
+	writeFileSync(originalExtension, execFileSync("git", ["show", `${UPSTREAM_BASELINE}:extensions/md-log.ts`], { cwd: repoRoot, encoding: "utf8" }));
 	// Same code, but with deterministic stand-ins for the modules other work packages own.
 	const stubDir = join(root, "stub-ext");
 	mkdirSync(join(stubDir, "lib"), { recursive: true });
@@ -273,6 +275,31 @@ test("blocked QA calls produce no callouts (live and backfill)", async () => {
 		assert.equal(text.split("> [!question] Question\n").length - 1, 1);
 		assert.ok(text.includes(`> [!question] Question\n> ${ASK_ARGS.question}\n>\n> 1. Proofs\n> 2. Code`));
 	}
+});
+
+test("ask_user_question: written once when it executes; a call blocked at tool_call never reaches the note", async () => {
+	const dir = newDir("ask-live");
+	const file = join(dir, "ask.md");
+	writeFileSync(file, "");
+	const s = createSession("abababab-ask-live");
+	const { ext } = await load(realExtension, s, dir);
+	const ctx = makeCtx(s, dir);
+	await command(ext, "md-log", file, ctx);
+	const args = { question: "BLOCKEDASK which way?", options: [{ label: "Left" }, { label: "Right" }] };
+	// Blocked by another extension: tool_call happens, execute() never runs, result is an error.
+	await emit(ext, "tool_call", { toolName: "ask_user_question", toolCallId: "blk", input: args }, ctx);
+	await emit(ext, "tool_result", { toolName: "ask_user_question", toolCallId: "blk", input: args, isError: true, content: [{ type: "text", text: "held back" }], details: undefined }, ctx);
+	assert.ok(!read(file).includes("BLOCKEDASK"), "blocked question is not logged");
+	// Real call: execute() announces it via onUpdate → question now, answer on result, no duplicate.
+	const real = { question: "Which topic next?", options: [{ label: "Proofs" }, { label: "Code" }] };
+	await emit(ext, "tool_call", { toolName: "ask_user_question", toolCallId: "ok", input: real }, ctx);
+	assert.ok(!read(file).includes("Which topic next?"), "not written before it executes");
+	await emit(ext, "tool_execution_update", { toolName: "ask_user_question", toolCallId: "ok", args: real, partialResult: { details: { options: [{ index: 1, label: "Proofs" }, { index: 2, label: "Code" }] } } }, ctx);
+	assert.ok(read(file).includes("> [!question] Question\n> Which topic next?\n>\n> 1. Proofs\n> 2. Code"));
+	await emit(ext, "tool_result", { toolName: "ask_user_question", toolCallId: "ok", input: real, isError: false, content: [], details: { status: "answered", answers: [{ type: "option", index: 2, label: "Code", value: "Code" }] } }, ctx);
+	const text = read(file);
+	assert.equal(text.split("Which topic next?").length - 1, 1, "question written exactly once");
+	assert.ok(text.indexOf("> [!example] Answer\n> 2. Code") > text.indexOf("Which topic next?"));
 });
 
 test("invalid Mermaid is hidden in the note (live + backfill); valid Mermaid is untouched; style installer warns once", async () => {

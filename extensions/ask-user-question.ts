@@ -584,7 +584,7 @@ export default function askUserQuestion(pi: ExtensionAPI) {
 		],
 		parameters: AskUserQuestionParams,
 
-		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const options = normalizeOptions(params.options);
 			const context = params.details?.trim() || undefined;
 			const mode: AskUserQuestionMode = options.length === 0 ? "text" : params.multiSelect ? "multi-select" : "single-select";
@@ -596,6 +596,14 @@ export default function askUserQuestion(pi: ExtensionAPI) {
 			if (!ctx.hasUI) {
 				return unavailableResult(params.question, mode, "ask_user_question requires interactive mode UI", context);
 			}
+
+			// Announce that the question is really being asked (listeners such as
+			// md-log write it to the note now). A call blocked at tool_call never
+			// reaches execute(), so it is never announced.
+			onUpdate?.({
+				content: [{ type: "text", text: "Awaiting user response..." }],
+				details: { options: options.map((o, i) => ({ index: i + 1, label: o.label })) },
+			});
 
 			return withUILock(async () => {
 				if (mode === "text") {
@@ -640,7 +648,8 @@ export default function askUserQuestion(pi: ExtensionAPI) {
 
 		renderResult(result, _options, theme) {
 			const details = result.details as AskUserQuestionResultDetails | undefined;
-			if (!details) {
+			// No status = the in-progress update emitted before the UI opens.
+			if (!details || !details.status) {
 				const first = result.content[0];
 				return new Text(first?.type === "text" ? first.text : "", 0, 0);
 			}

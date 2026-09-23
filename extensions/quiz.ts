@@ -991,7 +991,8 @@ export default function quiz(pi: ExtensionAPI) {
 
 		renderResult(result, _options, theme) {
 			const details = result.details as QuizResultDetails | undefined;
-			if (!details) {
+			// No status = the in-progress update emitted before the UI opens.
+			if (!details || !details.status) {
 				const first = result.content[0];
 				return new Text(first?.type === "text" ? first.text : "", 0, 0);
 			}
