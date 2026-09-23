@@ -30,10 +30,10 @@ Goals and acceptance criteria: [PLAN.md](PLAN.md). Interfaces: [CONTRACTS.md](CO
    Run `node tests/e2e/run.mjs --scenario all`, then `node tests/e2e/analyze.mjs tests/e2e/out/<runId>`, then verify
    the notes with `node tests/obsidian/verify-render.mjs --vault pi-learn-acceptance --notes Learn --out <dir>`.
    Record AC2–AC8 and AC10 in `docs/ACCEPTANCE.md`.
-2. **Install into the real vault.** Do both steps below, then start `pi` there and approve project trust once:
-   - Run `cd "C:\Users\basam\Desktop\Basam's_Vault\Learn"` then `pi install -l git:github.com/BasamAhmed640/pi-learn`.
-   - Add `{ "source": "npm:@juicesharp/rpiv-ask-user-question", "extensions": [] }` to that folder's
-     `.pi/settings.json` `packages` list.
+2. **Installed in the real vault (done).** `C:\Users\basam\Desktop\Basam's_Vault\Learn\.pi\settings.json` holds the git
+   package plus the rpiv filter. Loading through pi's real loader gives 0 errors, and pi-learn owns `quiz` and
+   `ask_user_question`. **You:** `cd` there, run `pi`, approve project trust once, then `/learn <topic>`.
+   To update later: `pi update` in that folder.
 3. **Restore your Obsidian settings.** The verifier moved `"open": true` from `Basam's_Vault` to the
    `pi-learn-acceptance` vault in `%APPDATA%\obsidian\obsidian.json` (backup: `obsidian.json.bak-pi-learn`).
    Close Obsidian and move the flag back. `"cli": true` was also enabled, which is harmless and useful.
