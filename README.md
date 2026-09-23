@@ -19,6 +19,10 @@ This fork adds:
   `/learn-resume` continues a lesson from the note alone.
 - **Centered presentation.** A scoped CSS snippet centers callouts, display equations and Mermaid diagrams in
   reading view and live preview.
+- **Real reference images when they help.** The tutor can search Wikimedia Commons, inspect small previews, and
+  import a relevant raster image into the vault with source, artist and license attribution. Imported images are
+  saved under the vault's `pi-learn-images/` folder and embedded locally, so the note keeps working offline.
+  Systems still get Mermaid diagrams.
 
 ## Install (as a pi package, project-local)
 
@@ -59,6 +63,7 @@ as callouts.
 - `extensions/quiz.ts`, `extensions/ask-user-question.ts`: graded and ungraded questions (TUI popups)
 - `extensions/md-log.ts`: the Obsidian log, plus `/learn`, `/learn-resume`, the index and styling install
 - `extensions/system-diagrams.ts`: policy injection, Mermaid validation and repair, and the semantic system check
+- `extensions/commons-images.ts`: Commons search, preview and bounded import for local Obsidian image embeds
 - `extensions/lib/`: pure helpers (Mermaid parsing/validation, note format, policy text, Obsidian styling)
 - `styles/pi-learn.css`: the Obsidian snippet (centered callouts, equations, diagrams)
 - `extensions/visual-tools/`, `agents/`: Amos's maker subagents (need pi-interactive-subagents, which runs in tmux)

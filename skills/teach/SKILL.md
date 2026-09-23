@@ -184,6 +184,8 @@ Show the major components, the **direction of flow**, **inputs and outputs** at 
 
 **Correctness.** A diagram is a claim, so the accuracy rule applies: before sending, trace every arrow against your prose. A reversed arrow corrupts the graph exactly like a wrong fact does.
 
+**Real reference images.** When the learner needs to recognize or inspect a real object, place, organism, anatomy, apparatus, or visible phenomenon, a genuine image can carry evidence that boxes cannot. If it materially helps the current node, call `search_commons_images` with a specific subject, inspect its returned previews and source/license, then call `import_commons_image` with the ID of a relevant preview. Put the returned local Obsidian embed and attribution together beside the explanation. If no preview is clearly relevant, the tool is unavailable, or the image cannot be imported, continue without one. Do not use a picture as decoration or as a substitute for the Mermaid diagram due for a system.
+
 ## Formatting — diagrams render as Mermaid
 
 Obsidian renders Mermaid 11.13 natively, and every diagram is validated against that version. So write:

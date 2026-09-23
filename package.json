@@ -13,6 +13,7 @@
       "./extensions/md-log.ts",
       "./extensions/quiz.ts",
       "./extensions/ask-user-question.ts",
+      "./extensions/commons-images.ts",
       "./extensions/visual-tools/index.ts"
     ],
     "skills": [
