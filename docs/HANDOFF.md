@@ -32,7 +32,8 @@ Goals and acceptance criteria: [PLAN.md](PLAN.md). Interfaces: [CONTRACTS.md](CO
   `ask_user_question`, with rpiv filtered out for this project. The CSS snippet is enabled in the real vault.
 - Pi was also opened from `C:\Users\basam`, outside the project, so that session did not load the project package.
   A personal package install plus `<agent-dir>/pi-learn.json` now lets `/learn` work from any directory while
-  keeping notes in the vault. Bare `/learn` and `/learn help` show a guide to the commands, skills and tools.
+  keeping notes in the vault. The personal rpiv extension is filtered to avoid a duplicate question tool.
+  Bare `/learn` and `/learn help` show a guide to the commands, skills and tools.
 - Live learning sessions: the original ten-scenario batch passed 9/10 under its early stopping limit; a longer
   market run passed the remaining ambiguous topic. A later PID run confirmed that the model-backed system
   classifier and diagram reviewer run in practice. Full details: [ACCEPTANCE.md](ACCEPTANCE.md).

@@ -59,7 +59,7 @@ a UI lock with `quiz`. Add this to `Learn/.pi/settings.json` under `packages`:
 { "source": "npm:@juicesharp/rpiv-ask-user-question", "extensions": [] }
 ```
 
-For a personal install outside the project, list pi-learn before a personal rpiv package in `<agent-dir>/settings.json` so its question tool loads first.
+For a personal install outside the project, filter the personal rpiv extension in `<agent-dir>/settings.json` the same way. This keeps the package installed but avoids a duplicate `ask_user_question` registration error; pi-learn provides the question tool everywhere.
 
 Start `pi` in the `Learn` folder and approve project trust once. The original install still works too: clone this
 repo as the project's `.pi` directory.
