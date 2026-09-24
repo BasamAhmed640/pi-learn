@@ -26,14 +26,30 @@ This fork adds:
   saved under the vault's `pi-learn-images/` folder and embedded locally, so the note keeps working offline.
   Systems still get Mermaid diagrams.
 
-## Install (as a pi package, project-local)
+## Install
 
-The learning project is a folder inside your Obsidian vault, as in Amos's setup. Install the package there:
+The learning project can be a folder inside your Obsidian vault, as in Amos's setup. Install the package there to load it only when Pi starts in that folder:
 
 ```bash
 cd "<your vault>/Learn"
 pi install -l git:github.com/BasamAhmed640/pi-learn
 ```
+
+Pi must trust that project before loading its package. Use `/trust` in Pi to save the decision. A Pi session started in another directory will not see a project-local installation.
+
+To use `/learn` from **any** Pi directory, install it personally as well:
+
+```bash
+pi install git:github.com/BasamAhmed640/pi-learn
+```
+
+Set the destination for lessons in `<agent-dir>/pi-learn.json` (`<agent-dir>` defaults to `~/.pi/agent`):
+
+```json
+{ "notesDir": "C:\\path\\to\\your\\ObsidianVault\\Learn" }
+```
+
+`PI_LEARN_NOTES_DIR` takes precedence if set. Without either setting, `/learn` writes in Pi's current directory. When both personal and project installations are present, Pi uses the project copy in that project.
 
 If another package already provides `ask_user_question` (for example `@juicesharp/rpiv-ask-user-question`), switch
 its extension off for this project only. pi keeps the first tool registered under a name, and the bundled one shares
@@ -43,6 +59,8 @@ a UI lock with `quiz`. Add this to `Learn/.pi/settings.json` under `packages`:
 { "source": "npm:@juicesharp/rpiv-ask-user-question", "extensions": [] }
 ```
 
+For a personal install outside the project, list pi-learn before a personal rpiv package in `<agent-dir>/settings.json` so its question tool loads first.
+
 Start `pi` in the `Learn` folder and approve project trust once. The original install still works too: clone this
 repo as the project's `.pi` directory.
 
@@ -50,7 +68,8 @@ repo as the project's `.pi` directory.
 
 | Command | What it does |
 |---|---|
-| `/learn <topic>` | Creates `<topic>.md` in the project folder, links it, and starts the lesson. If the note exists, it resumes instead. |
+| `/learn` or `/learn help` | Shows a persistent guide to the commands, skills, tools and note location. |
+| `/learn <topic>` | Creates `<topic>.md` in the configured notes folder, links it, and starts the lesson. If the note exists, it resumes instead. |
 | `/learn-resume [note]` | Continues a lesson from its note: topic, plan, diagrams already drawn, quiz history, last exchanges. With no argument it picks the most recently studied note. |
 | `/md-log <file>` / `/md-unlog` | Amos's original commands. Link an existing note (non-destructive now) or stop logging. |
 

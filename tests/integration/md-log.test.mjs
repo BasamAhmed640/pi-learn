@@ -367,7 +367,18 @@ test("/learn creates the note + index, links it and starts teaching", async () =
 	const ctx = makeCtx(s, root);
 
 	await command(ext, "learn", "   ", ctx);
-	assert.deepEqual(ctx.ui.notices.at(-1), { message: "Usage: /learn <topic>", level: "warning" });
+	const guide = calls.sendMessage.at(-1);
+	assert.equal(guide?.message.customType, "pi-learn-help");
+	assert.equal(guide?.message.display, true);
+	assert.equal(guide?.options?.triggerTurn, false, "help must not interrupt a running model turn");
+	for (const usage of ["/learn <topic>", "/learn-resume", "/md-log", "/md-unlog", "/skill:teach", "/skill:visualize", "search_commons_images", "Learn Index.md", notes]) {
+		assert.ok(guide.message.content.includes(usage), `guide lacks ${usage}`);
+	}
+	assert.equal(calls.sendUserMessage.length, 0, "help never starts the model");
+	assert.equal(readdirSync(notes).length, 0, "help never creates a note");
+	assert.deepEqual(ext.commands.get("learn").getArgumentCompletions(""), [{ value: "help", label: "help", description: "Show pi-learn commands and how to use them" }]);
+	await command(ext, "learn", "help", ctx);
+	assert.equal(calls.sendMessage.at(-1).message.customType, "pi-learn-help");
 	const busy = makeCtx(s, root, { idle: false });
 	await command(ext, "learn", "Anything", busy);
 	assert.equal(busy.ui.notices.at(-1).level, "warning");
@@ -390,6 +401,32 @@ test("/learn creates the note + index, links it and starts teaching", async () =
 	// the teaching turn is logged live into the new section
 	await emit(ext, "message_end", { type: "message_end", message: { role: "user", content: "Teach me: How does TCP/IP work?" } }, ctx);
 	assert.ok(read(file).endsWith(`${marker(s.sessionId)}\n\n\n> [!quote] YOU\n\nTeach me: How does TCP/IP work?\n`));
+});
+
+test("/learn uses a personal notes directory when Pi is started outside the vault", async () => {
+	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+	const previousNotesDir = process.env.PI_LEARN_NOTES_DIR;
+	const agentDir = newDir("agent-config");
+	const notes = newDir("configured-notes");
+	try {
+		delete process.env.PI_LEARN_NOTES_DIR;
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+		writeFileSync(join(agentDir, "pi-learn.json"), JSON.stringify({ notesDir: notes }));
+		const s = createSession("45454545-configured");
+		const { ext, calls } = await load(realExtension, s, root);
+		const ctx = makeCtx(s, root);
+		await command(ext, "learn", "", ctx);
+		assert.ok(calls.sendMessage.at(-1).message.content.includes(notes));
+		await command(ext, "learn", "Control loops", ctx);
+		assert.ok(existsSync(join(notes, "Control loops.md")));
+		assert.ok(existsSync(join(notes, "Learn Index.md")));
+		assert.ok(!existsSync(join(root, "Control loops.md")));
+	} finally {
+		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+		if (previousNotesDir === undefined) delete process.env.PI_LEARN_NOTES_DIR;
+		else process.env.PI_LEARN_NOTES_DIR = previousNotesDir;
+	}
 });
 
 test("/learn on an existing note resumes it instead of overwriting", async () => {

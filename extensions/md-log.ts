@@ -32,12 +32,14 @@
  *   /learn <topic>        — Create a learning note, link it and start teaching.
  *   /learn-resume [note]  — Continue a learning note (latest one by default).
  *
- * Notes directory: $PI_LEARN_NOTES_DIR, else the working directory.
+ * Notes directory: $PI_LEARN_NOTES_DIR, else the user's pi-learn.json
+ * configuration, else the working directory.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
+import { homedir } from "node:os";
 import * as path from "node:path";
 import {
 	INDEX_BASENAME,
@@ -74,7 +76,33 @@ interface MdLogInstance {
 }
 
 function notesDirFor(ctx: any): string {
-	return process.env.PI_LEARN_NOTES_DIR || ctx.cwd;
+	if (process.env.PI_LEARN_NOTES_DIR?.trim()) return path.resolve(process.env.PI_LEARN_NOTES_DIR.trim());
+	const agentDir = process.env.PI_CODING_AGENT_DIR?.trim() || path.join(homedir(), ".pi", "agent");
+	try {
+		const config = JSON.parse(fs.readFileSync(path.join(agentDir, "pi-learn.json"), "utf8"));
+		if (typeof config.notesDir === "string" && path.isAbsolute(config.notesDir)) return config.notesDir;
+	} catch { /* an absent or malformed optional config leaves the current directory as the default */ }
+	return ctx.cwd;
+}
+
+function learnHelp(notesDir: string): string {
+	return `# pi-learn — commands and options
+
+**Start or continue**
+
+| Type in Pi | What it does |
+| --- | --- |
+| \`/learn <topic>\` | Create and link an Obsidian note, then start the lesson. If the note already exists, continue it. |
+| \`/learn-resume\` | Continue your most recently studied note in a fresh session. |
+| \`/learn-resume <note>\` | Continue a specific note by name or path. |
+| \`/md-log <existing-file.md>\` | Link this Pi session to an existing Markdown note and backfill it. |
+| \`/md-unlog\` | Stop mirroring this session to the note. |
+
+**Skills:** \`/skill:teach\` loads the teaching method; \`/skill:visualize\` requests a generated visual when its maker tools are available.
+
+**During a lesson:** Pi asks graded \`quiz\` questions and \`ask_user_question\` prompts, draws Mermaid diagrams for systems, and can search Wikimedia Commons for a useful real image. The image tools (\`search_commons_images\` and \`import_commons_image\`) are used by the tutor and include attribution; they are not slash commands.
+
+**Obsidian notes:** \`${notesDir}\`. The \`Learn Index.md\` there links your topics. Run \`/learn <topic>\` to begin, or \`/learn help\` to show this guide again.`;
 }
 
 function samePath(a: string, b: string): boolean {
@@ -824,11 +852,12 @@ export default function mdLog(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("learn", {
-		description: "Start learning a topic: create an Obsidian note, link it and begin teaching",
+		description: "Show learning options, or start a topic with /learn <topic>",
+		getArgumentCompletions: (prefix) => "help".startsWith(prefix.trim().toLowerCase()) ? [{ value: "help", label: "help", description: "Show pi-learn commands and how to use them" }] : null,
 		handler: async (args, ctx: any) => {
 			const topic = args.trim().replace(/\s+/g, " ");
-			if (!topic) {
-				ctx.ui.notify("Usage: /learn <topic>", "warning");
+			if (!topic || topic.toLowerCase() === "help" || topic === "--help") {
+				pi.sendMessage({ customType: "pi-learn-help", content: learnHelp(notesDirFor(ctx)), display: true }, { triggerTurn: false });
 				return;
 			}
 			if (typeof ctx.isIdle === "function" && !ctx.isIdle()) {
@@ -842,7 +871,7 @@ export default function mdLog(pi: ExtensionAPI) {
 			}
 			const notesDir = notesDirFor(ctx);
 			if (!fs.existsSync(notesDir) || !fs.statSync(notesDir).isDirectory()) {
-				ctx.ui.notify(`Notes folder does not exist: ${notesDir} (set PI_LEARN_NOTES_DIR)`, "error");
+				ctx.ui.notify(`Notes folder does not exist: ${notesDir} (set PI_LEARN_NOTES_DIR or pi-learn.json notesDir)`, "error");
 				return;
 			}
 			const file = path.join(notesDir, `${name}.md`);

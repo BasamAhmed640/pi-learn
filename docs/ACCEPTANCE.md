@@ -6,7 +6,7 @@ The live runs used pi 0.87.1 with `opencode-go/deepseek-v4.1-flash` and a simula
 
 | Criterion | Result | Evidence / limit |
 | --- | --- | --- |
-| AC1 tests | Pass | 198/198 after image import and diagram quality changes were integrated. |
+| AC1 tests | Pass | 199/199 after the `/learn` help and personal notes configuration were added. |
 | AC2 Mermaid syntax and render | Pass for original batch | The final Obsidian rerun rendered 42/42 blocks across 20 notes without Mermaid errors. The longer market run produced 8 more blocks validated by Mermaid 11.13.0; those were not part of the 20-note Obsidian batch. |
 | AC3 clear systems | Pass | 4/4 produced a concept diagram without a diagram request from the learner. |
 | AC4 possible systems | Pass with longer market run | Binary search produced a concept diagram. The first market run stopped at the harness's three quiz-check limit before the planned diagram node; a six-turn, eight-check run produced six concept diagrams. |
