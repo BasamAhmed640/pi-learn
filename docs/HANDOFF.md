@@ -4,18 +4,26 @@
 `C:\Users\basam\Documents\pi-learn` on branch `feat/system-diagrams`.
 Goals and acceptance criteria: [PLAN.md](PLAN.md). Interfaces: [CONTRACTS.md](CONTRACTS.md).
 
-## 2026-09-24 update in progress
+## 2026-09-24 release
 
-- The local code replaces the `/md-log` and `/md-unlog` command flow with `/learn new`, `/learn open`,
+- Pi Learn replaces the `/md-log` and `/md-unlog` command flow with `/learn new`, `/learn open`,
   `/learn search`, `/learn resume`, `/learn status`, `/learn close`, and `/learn obsidian`. Bare `/learn`
   displays the guide. Pi's completion list and a picker help find notes, including ordinary Markdown notes.
 - A fresh resume still reconstructs context from the note, preserving its previous sections. Older session
   metadata is read for compatibility; new links use `learn-link` entries.
 - The teaching plan identifies specific lesson points where a real image can help. Search requires a concrete
   view and learning goal. Import requires a previewed Commons candidate, a sentence on what to notice, and
-  descriptive alt text; the local image is placed with attribution beside the explanation.
-- Verification, GitHub push and personal/vault package updates for this update are pending. Record the final
-  test result and commit here after installation.
+  descriptive alt text; the local image is placed with attribution beside the explanation. A bounded visual
+  review checks the preview against the original learning need, including after broader search retries. It
+  rejects mismatched images and skips import when the review is unavailable.
+- `npm test` passed **203/203** and the end-to-end UI self-test passed. A focused live check accepted a real
+  BGA solder-ball image and rejected an Intel LGA photo for the same BGA learning need, without writing the
+  rejected image. The longer BGA lesson exposed that error before the fix; it timed out during its first model
+  turn, so it is not counted as a completed end-to-end run. Details are in [ACCEPTANCE.md](ACCEPTANCE.md).
+- GitHub `main` and `feat/system-diagrams`, the personal Pi package, and the vault's `Learn` package have been
+  updated from the same release. Pi's real loader found all six package extensions with zero errors from both
+  the vault and the home directory. Restart Pi or use `/reload` in an already open session to pick up the new
+  commands. The previous Silicon Packaging note was preserved.
 
 ## Prior release (2026-09-23)
 
