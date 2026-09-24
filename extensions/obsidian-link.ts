@@ -700,22 +700,12 @@ export default function obsidianLink(pi: ExtensionAPI) {
 
 	function learningNotes(notesDir: string): Array<NoteSummary & { file: string }> {
 		const out: Array<NoteSummary & { file: string }> = [];
-		let entries: fs.Dirent[];
-		try {
-			entries = fs.readdirSync(notesDir, { withFileTypes: true });
-		} catch {
-			return out;
-		}
-		for (const e of entries) {
-			if (!e.isFile() || !e.name.toLowerCase().endsWith(".md")) continue;
-			const basename = e.name.slice(0, -3);
-			if (basename === INDEX_BASENAME) continue;
-			const file = path.join(notesDir, e.name);
+		for (const note of browsableNotes(notesDir)) {
 			try {
-				if (!/^learn-topic\s*:/m.test(readHead(file))) continue;
-				const text = fs.readFileSync(file, "utf-8");
-				const summary = summarizeNote(text, basename, fs.statSync(file).mtimeMs);
-				if (summary) out.push({ ...summary, file });
+				if (!/^learn-topic\s*:/m.test(readHead(note.file))) continue;
+				const text = fs.readFileSync(note.file, "utf-8");
+				const summary = summarizeNote(text, path.basename(note.file).replace(/\.md$/i, ""), fs.statSync(note.file).mtimeMs);
+				if (summary) out.push({ ...summary, basename: note.relativePath.replace(/\.md$/i, ""), file: note.file });
 			} catch {
 				// unreadable note: skip
 			}
@@ -919,7 +909,7 @@ export default function obsidianLink(pi: ExtensionAPI) {
 		}
 		try {
 			const link = await linkNote(ctx, file, { backfill: false });
-			if (samePath(path.dirname(file), notesDirFor(ctx))) regenerateIndex(notesDirFor(ctx));
+			regenerateIndex(notesDirFor(ctx));
 			ctx.ui.notify(`Linked: ${file} → ${link.heading}`, "info");
 		} catch (e) {
 			ctx.ui.notify(`Could not open ${file}: ${(e as Error).message}`, "error");

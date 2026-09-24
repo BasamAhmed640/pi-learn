@@ -371,6 +371,12 @@ test("session_start restores the link; /learn close stops logging", async () => 
 	await emit(second.ext, "message_end", { type: "message_end", message: { role: "user", content: "not logged" } }, ctx);
 	assert.ok(!read(file).includes("not logged"));
 	assert.deepEqual(s.entries.filter((e) => e.customType === "learn-link").at(-1).data, { file: null });
+	const unrelated = createSession("23232323-unlinked");
+	const unrelatedCtx = makeCtx(unrelated, dir);
+	await emit(second.ext, "session_start", { type: "session_start", reason: "switch" }, unrelatedCtx);
+	assert.equal(unrelatedCtx.ui.status.get("learn-obsidian"), undefined);
+	await emit(second.ext, "message_end", { type: "message_end", message: { role: "user", content: "after session switch" } }, unrelatedCtx);
+	assert.ok(!read(file).includes("after session switch"), "an unlinked session cannot write to the prior note");
 });
 
 // ─── /learn ──────────────────────────────────────────────────────────────────
@@ -604,6 +610,7 @@ test("/learn search browses plain Markdown notes with a picker and title complet
 	assert.ok(read(packaging).includes("Learner note.\n"), "the existing note is preserved");
 	assert.ok(read(packaging).includes(marker(s.sessionId)), "session is linked to the note");
 	assert.ok(!read(packaging).includes("Private conversation before searching"), "prior Pi conversation is not copied into a newly opened note");
+	assert.match(read(join(notes, "Learn Index.md")), /\[\[Hardware\/Silicon Packaging\]\]/, "nested learning notes appear in the index");
 });
 
 test("old md-log session entries restore into the new Obsidian link and /learn close supersedes them", async () => {

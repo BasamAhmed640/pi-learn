@@ -45,6 +45,16 @@ export const SCENARIOS = [
 		p: 0.7,
 	},
 	{
+		id: "sys-bga-packaging",
+		kind: "system",
+		extended: true, // purpose-built visual smoke; run by id rather than the baseline batch
+		topic: "How a high-speed ASIC package connects a silicon die through its substrate and BGA solder balls to a PCB",
+		goal: "I want to trace the signal path and recognize the real BGA underside: what the solder-ball array looks like, where it sits relative to the package substrate, and what I should notice in a reference image.",
+		p: 0.7,
+		maxUserTurns: 10,
+		maxQuizChecksAfterPlan: 5,
+	},
+	{
 		id: "complex-computer",
 		kind: "complex-system",
 		topic: "How a modern computer runs a program end to end: CPU, memory hierarchy and I/O",
@@ -103,7 +113,7 @@ export function selectScenarios(selector) {
 	const out = [];
 	for (const w of wanted) {
 		const matches =
-			w === "all" ? SCENARIOS : SCENARIOS.filter((s) => s.id === w || s.kind === w);
+			w === "all" ? SCENARIOS.filter((s) => !s.extended) : SCENARIOS.filter((s) => s.id === w || (s.kind === w && !s.extended));
 		if (matches.length === 0) {
 			throw new Error(
 				`Unknown scenario "${w}". Known ids: ${SCENARIOS.map((s) => s.id).join(", ")}; kinds: ${KINDS.join(", ")}; or "all".`,

@@ -125,7 +125,7 @@ function candidateOf(page: any): CommonsCandidate | null {
 	const license = cleanText(meta.LicenseShortName?.value, 100);
 	if (!/^(?:CC0|CC BY(?:-SA)?|Public domain|PD)(?:\s|$)/i.test(license)) return null;
 	const artist = cleanText(meta.Artist?.value, 300);
-	if (!artist || /^(?:unknown|anonymous|not (?:stated|provided|known)|n\/a|none|\?)$/i.test(artist)) return null;
+	if (!artist || /^(?:unknown(?: (?:author|creator))?|anonymous|not (?:stated|provided|known)|n\/a|none|\?)$/i.test(artist)) return null;
 	const licenseUrl = safeHttpsUrl(meta.LicenseUrl?.value);
 	if (/^CC/i.test(license) && !licenseUrl) return null;
 	const previewUrl = safeHttpsUrl(info.thumburl || info.url);

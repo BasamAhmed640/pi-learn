@@ -24,9 +24,10 @@ This fork adds:
 - **Real reference images when they teach something visible.** During planning, the tutor identifies lesson points
   where a specific real view would help the learner recognize or understand a concept. Before each search it states
   what the learner needs to see and why. It previews Wikimedia Commons results and imports an image only when the
-  subject is clear and accurate and the creator and license are usable. The note places the local image beside a
-  sentence explaining what to notice and source attribution. The image remains available offline; systems still
-  get Mermaid diagrams.
+  subject is clear and accurate and the creator and license are usable. A short independent visual check compares
+  the preview with the original learning need before download; broadening a search cannot quietly change that need.
+  If no preview passes, the lesson continues without an image. A passing local image is placed beside a sentence
+  explaining what to notice and source attribution. It remains available offline; systems still get Mermaid diagrams.
 
 ## Install
 
