@@ -1,11 +1,35 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { importPiSdk, repoRoot } from "../helpers/pi.mjs";
+import { importPiLoader, importPiSdk, repoRoot } from "../helpers/pi.mjs";
 
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII=", "base64");
+
+test("linked Obsidian lessons get a proactive but selective image policy", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-learn-image-policy-"));
+	mkdirSync(join(root, ".obsidian"));
+	const note = join(root, "Packaging.md");
+	writeFileSync(note, "# Packaging\n");
+	const { loadExtensions, createExtensionRuntime } = await importPiLoader();
+	const loaded = await loadExtensions([join(repoRoot, "extensions", "commons-images.ts")], root, undefined, createExtensionRuntime());
+	assert.deepEqual(loaded.errors, []);
+	const handlers = loaded.extensions[0].handlers.get("before_agent_start") ?? [];
+	assert.ok(handlers.length > 0);
+	const run = async (entries) => {
+		const event = { type: "before_agent_start", systemPromptOptions: { sections: {} } };
+		for (const handler of handlers) await handler(event, { sessionManager: { getEntries: () => entries } });
+		return event.systemPromptOptions.sections.reference_images;
+	};
+	assert.equal(await run([]), undefined, "ordinary Pi work is not given a lesson image rule");
+	const link = { type: "custom", customType: "md-log", data: { file: note } };
+	const policy = await run([link]);
+	for (const phrase of ["first relevant explanation", "search_commons_images", "broader physical-object term", "import_commons_image", "attribution", "Mermaid"]) {
+		assert.ok(policy.includes(phrase), `missing image instruction: ${phrase}`);
+	}
+	assert.equal(await run([link, { type: "custom", customType: "md-log", data: { file: null } }]), undefined, "unlinked sessions receive no image rule");
+});
 
 test("pi loads both Commons tools; search previews before import and returns a vault embed", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-learn-commons-loader-"));

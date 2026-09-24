@@ -5,7 +5,7 @@
 Goals and acceptance criteria: [PLAN.md](PLAN.md). Interfaces: [CONTRACTS.md](CONTRACTS.md).
 
 ## Done (verified)
-- `npm test`: **199/199 pass**. It covers unit tests and integration tests using pi 0.87.1's real extension loader.
+- `npm test`: **200/200 pass**. It covers unit tests and integration tests using pi 0.87.1's real extension loader.
 - Teach skill: additive **Systems get a Mermaid diagram** rule, covering your definition, the 4-tier decision rule,
   diagram types, overview + zoom-ins, and Mermaid 11.13 syntax rules. Every question goes through
   `quiz`/`ask_user_question`, so it shows up as a callout.
@@ -30,6 +30,8 @@ Goals and acceptance criteria: [PLAN.md](PLAN.md). Interfaces: [CONTRACTS.md](CO
 - The GitHub package is installed in `C:\Users\basam\Desktop\Basam's_Vault\Learn`. Pi loads all six pi-learn
   extension entries with 0 errors, the two Commons tools are present, and pi-learn owns `quiz` and
   `ask_user_question`, with rpiv filtered out for this project. The CSS snippet is enabled in the real vault.
+- Linked Obsidian lessons now receive an image policy in every model run: search at the first useful visual point,
+  retry one broader concrete Commons query if needed, and import only a relevant, attributed reference image.
 - Pi was also opened from `C:\Users\basam`, outside the project, so that session did not load the project package.
   A personal package install plus `<agent-dir>/pi-learn.json` now lets `/learn` work from any directory while
   keeping notes in the vault. The personal rpiv extension is filtered to avoid a duplicate question tool.

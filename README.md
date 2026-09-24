@@ -21,9 +21,10 @@ This fork adds:
   `/learn-resume` continues a lesson from the note alone.
 - **Centered presentation.** A scoped CSS snippet centers callouts, display equations and Mermaid diagrams in
   reading view and live preview.
-- **Real reference images when they help.** The tutor can search Wikimedia Commons, inspect small previews, and
-  import a relevant raster image into the vault with source, artist and license attribution. Imported images are
-  saved under the vault's `pi-learn-images/` folder and embedded locally, so the note keeps working offline.
+- **Real reference images when they help.** In a linked Obsidian lesson about a physical or visual topic, the tutor
+  searches Wikimedia Commons at the first relevant explanation and can retry once with a broader term. It inspects
+  small previews and imports only a relevant raster image into the vault with source, artist and license attribution.
+  Imported images are saved under the vault's `pi-learn-images/` folder and embedded locally, so the note keeps working offline.
   Systems still get Mermaid diagrams.
 
 ## Install
