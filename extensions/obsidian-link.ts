@@ -1,5 +1,5 @@
 /**
- * md-log — mirror the session to a markdown file for comfortable reading.
+ * Obsidian link — keep a learning note synchronized with the Pi lesson.
  *
  * Designed for long teaching/learning sessions where the terminal is hard on
  * the eyes and markdown/math/code don't render. The linked .md file is meant
@@ -26,17 +26,14 @@
  *     (source kept in a %% comment).
  *   - `Learn Index.md` in the notes dir lists every learning note.
  *
- * Commands:
- *   /md-log <filepath>    — Link an existing markdown file and backfill the session.
- *   /md-unlog             — Stop logging.
- *   /learn <topic>        — Create a learning note, link it and start teaching.
- *   /learn-resume [note]  — Continue a learning note (latest one by default).
+ * One /learn command offers new, open, search, resume, status and close.
+ * Old md-log session entries are read only to restore existing Pi sessions.
  *
  * Notes directory: $PI_LEARN_NOTES_DIR, else the user's pi-learn.json
  * configuration, else the working directory.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import { homedir } from "node:os";
@@ -47,6 +44,7 @@ import {
 	buildIndexNote,
 	buildResumeBrief,
 	findMermaidFences,
+	findSessionSections,
 	formatDate,
 	formatDateTime,
 	hideMermaidBlocks,
@@ -60,29 +58,35 @@ import {
 	type MermaidFence,
 	type NoteSummary,
 } from "./lib/learn-notes.ts";
+import { LEARN_LINK_ENTRY, linkedNoteFromEntries } from "./lib/learn-link-state.ts";
+import { findVaultRoot } from "./lib/obsidian-style.ts";
 
 const QA_TOOLS = new Set(["quiz", "ask_user_question"]);
 
-/** Latest md-log instance in this process (session replacement re-runs the factory). */
-const INSTANCE_KEY = "__piLearnMdLog";
+/** Latest Obsidian link instance in this process (session replacement re-runs the factory). */
+const INSTANCE_KEY = "__piLearnObsidianLink";
 const VALIDATE_TIMEOUT_MS = 20_000;
 
 type MermaidCheck = { status: string; error?: string };
 type Validator = (source: string) => Promise<MermaidCheck>;
 
-interface MdLogInstance {
-	/** Link + brief inside `ctx`'s session. `persist: false` when the md-log entry was already written. */
+interface ObsidianLinkInstance {
+	/** Link + brief inside `ctx`'s session. `persist: false` when the link entry was already written. */
 	resumeHere(ctx: any, file: string, opts: { persist: boolean }): Promise<void>;
 }
 
 function notesDirFor(ctx: any): string {
 	if (process.env.PI_LEARN_NOTES_DIR?.trim()) return path.resolve(process.env.PI_LEARN_NOTES_DIR.trim());
-	const agentDir = process.env.PI_CODING_AGENT_DIR?.trim() || path.join(homedir(), ".pi", "agent");
 	try {
-		const config = JSON.parse(fs.readFileSync(path.join(agentDir, "pi-learn.json"), "utf8"));
+		const config = JSON.parse(fs.readFileSync(agentConfigPath(), "utf8"));
 		if (typeof config.notesDir === "string" && path.isAbsolute(config.notesDir)) return config.notesDir;
 	} catch { /* an absent or malformed optional config leaves the current directory as the default */ }
 	return ctx.cwd;
+}
+
+function agentConfigPath(): string {
+	const agentDir = process.env.PI_CODING_AGENT_DIR?.trim() || path.join(homedir(), ".pi", "agent");
+	return path.join(agentDir, "pi-learn.json");
 }
 
 function learnHelp(notesDir: string): string {
@@ -92,17 +96,19 @@ function learnHelp(notesDir: string): string {
 
 | Type in Pi | What it does |
 | --- | --- |
-| \`/learn <topic>\` | Create and link an Obsidian note, then start the lesson. If the note already exists, continue it. |
-| \`/learn-resume\` | Continue your most recently studied note in a fresh session. |
-| \`/learn-resume <note>\` | Continue a specific note by name or path. |
-| \`/md-log <existing-file.md>\` | Link this Pi session to an existing Markdown note and backfill it. |
-| \`/md-unlog\` | Stop mirroring this session to the note. |
+| \`/learn new <topic>\` | Create and link a learning note, then start teaching. \`/learn <topic>\` also works. |
+| \`/learn open [note]\` | Search your Obsidian learning notes and link one to this Pi session. With no name, choose from a picker. |
+| \`/learn search [words]\` | Find notes by title or topic in the Pi terminal; choose one to open. |
+| \`/learn resume [note]\` | Continue from a note's actual contents in a fresh Pi session. With no name, choose from a picker. |
+| \`/learn-resume [note]\` | Shortcut for resume; with no name, continues the latest learning note. |
+| \`/learn status\` / \`/learn close\` | Show the linked note, or unlink it. |
+| \`/learn obsidian [folder]\` | Show or set the Obsidian notes folder. Pass a vault root to use its \`Learn\` folder. |
 
 **Skills:** \`/skill:teach\` loads the teaching method; \`/skill:visualize\` requests a generated visual when its maker tools are available.
 
 **During a lesson:** Pi asks graded \`quiz\` questions and \`ask_user_question\` prompts, draws Mermaid diagrams for systems, and can search Wikimedia Commons for a useful real image. The image tools (\`search_commons_images\` and \`import_commons_image\`) are used by the tutor and include attribution; they are not slash commands.
 
-**Obsidian notes:** \`${notesDir}\`. The \`Learn Index.md\` there links your topics. Run \`/learn <topic>\` to begin, or \`/learn help\` to show this guide again.`;
+**Obsidian notes:** \`${notesDir}\`. The \`Learn Index.md\` there links your topics. Type \`/learn open \` or \`/learn resume \` and use Pi's completion list to find a note.`;
 }
 
 function samePath(a: string, b: string): boolean {
@@ -150,8 +156,9 @@ function hasConversation(ctx: any): boolean {
 	);
 }
 
-export default function mdLog(pi: ExtensionAPI) {
+export default function obsidianLink(pi: ExtensionAPI) {
 	let logFile: string | null = null;
+	let currentCwd = process.cwd();
 	sharedState();
 
 	function setLinked(file: string | null, ctx: any): void {
@@ -160,12 +167,12 @@ export default function mdLog(pi: ExtensionAPI) {
 		if (file) {
 			const theme = ctx.ui.theme;
 			ctx.ui.setStatus(
-				"md-log",
+				"learn-obsidian",
 				theme.fg("accent", "🗒 ") + theme.fg("dim", path.basename(file)),
 			);
 			ensureStyle(file, ctx);
 		} else {
-			ctx.ui.setStatus("md-log", undefined);
+			ctx.ui.setStatus("learn-obsidian", undefined);
 		}
 	}
 
@@ -191,17 +198,9 @@ export default function mdLog(pi: ExtensionAPI) {
 	// --- State restoration on session restart ---
 
 	pi.on("session_start", async (_event, ctx) => {
-		let lastLinkData: { file: string | null } | undefined;
-		for (const entry of ctx.sessionManager.getEntries()) {
-			if (entry.type === "custom" && entry.customType === "md-log") {
-				lastLinkData = entry.data as { file: string | null } | undefined;
-			}
-		}
-		if (lastLinkData?.file) {
-			setLinked(lastLinkData.file, ctx);
-		} else {
-			sharedState().linkedNote = null;
-		}
+		currentCwd = ctx.cwd;
+		const file = linkedNoteFromEntries(ctx.sessionManager.getEntries());
+		setLinked(file, ctx);
 	});
 
 	// --- Serialization: events can fire close together; keep appends ordered ---
@@ -252,7 +251,7 @@ export default function mdLog(pi: ExtensionAPI) {
 					const mod: any = await import("./lib/mermaid.ts");
 					return typeof mod?.validateMermaid === "function" ? (mod.validateMermaid as Validator) : null;
 				} catch {
-					return null; // module missing or broken: md-log keeps working, diagrams pass through
+					return null; // module missing or broken: note sync keeps working, diagrams pass through
 				}
 			})();
 		}
@@ -636,8 +635,10 @@ export default function mdLog(pi: ExtensionAPI) {
 		tags?: boolean;
 		/** New section gets `Continues [[#<previous session>]].` */
 		resume?: boolean;
-		/** Write the md-log custom entry (false when it was written by newSession's setup). */
+		/** Write the persisted link entry (false when it was written by newSession's setup). */
 		persist?: boolean;
+		/** Backfill prior messages into this note. Opening an existing note starts at the link point. */
+		backfill?: boolean;
 	}
 
 	interface LinkResult {
@@ -655,11 +656,12 @@ export default function mdLog(pi: ExtensionAPI) {
 	 */
 	async function linkNote(ctx: any, file: string, opts: LinkOptions): Promise<LinkResult> {
 		const result = await withLock(async () => {
-			const { blocks, count } = await backfillBlocks(ctx);
+			const { blocks, count } = opts.backfill === false ? { blocks: [], count: 0 } : await backfillBlocks(ctx);
 			const before = fs.readFileSync(file, "utf-8");
 			const now = new Date();
 			const sessionId = sessionIdOf(ctx);
-			const up = upsertSessionSection(before, {
+			const existing = opts.backfill === false ? findSessionSections(before).find((s) => s.sessionId === sessionId) : undefined;
+			const up = existing ? { text: before, heading: existing.heading, created: false } : upsertSessionSection(before, {
 				sessionId,
 				date: formatDate(now),
 				content: blocks.join("\n\n"),
@@ -678,7 +680,7 @@ export default function mdLog(pi: ExtensionAPI) {
 			lastUpdatedStamp = { file, stamp: formatDateTime(now) };
 			return { written: count, heading: up.heading, created: up.created, before };
 		});
-		if (opts.persist !== false) pi.appendEntry("md-log", { file });
+		if (opts.persist !== false) pi.appendEntry(LEARN_LINK_ENTRY, { file });
 		setLinked(file, ctx);
 		return result;
 	}
@@ -721,6 +723,86 @@ export default function mdLog(pi: ExtensionAPI) {
 		return out;
 	}
 
+	interface BrowsableNote {
+		file: string;
+		relativePath: string;
+		title: string;
+		status: string;
+		sessions: number;
+		sortKey: number;
+	}
+
+	/** Scholar-style title browser. Plain Markdown notes can be linked too. */
+	function browsableNotes(notesDir: string): BrowsableNote[] {
+		const notes: BrowsableNote[] = [];
+		const pending: Array<{ dir: string; depth: number }> = [{ dir: notesDir, depth: 0 }];
+		while (pending.length && notes.length < 1000) {
+			const { dir, depth } = pending.shift()!;
+			let entries: fs.Dirent[];
+			try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+			for (const entry of entries) {
+				if (entry.name.startsWith(".")) continue;
+				const file = path.join(dir, entry.name);
+				if (entry.isDirectory() && depth < 4 && entry.name !== "node_modules" && entry.name !== "pi-learn-images") {
+					pending.push({ dir: file, depth: depth + 1 });
+					continue;
+				}
+				if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".md") || entry.name === INDEX_FILENAME) continue;
+				try {
+					const relativePath = path.relative(notesDir, file).split(path.sep).join("/");
+					const basename = entry.name.slice(0, -3);
+					const stat = fs.statSync(file);
+					const summary = summarizeNote(readHead(file), basename, stat.mtimeMs);
+					notes.push({ file, relativePath, title: summary?.topic || basename,
+						status: summary?.status || "existing note", sessions: summary?.sessions || 0,
+						sortKey: summary?.sortKey || stat.mtimeMs });
+				} catch { /* unreadable note: skip */ }
+				if (notes.length >= 1000) break;
+			}
+		}
+		return notes.sort((a, b) => b.sortKey - a.sortKey || a.title.localeCompare(b.title));
+	}
+
+	function cleanNoteArgument(raw: string): string {
+		let value = raw.trim();
+		if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1).trim();
+		if (value.startsWith("[[") && value.endsWith("]]")) value = value.slice(2, -2).split("|")[0].trim();
+		return value;
+	}
+
+	async function chooseNote(raw: string, ctx: any, action: "open" | "resume" | "search"): Promise<string | null> {
+		const query = cleanNoteArgument(raw);
+		if (query && path.isAbsolute(query) && isFile(query)) {
+			if (findVaultRoot(query)) return query;
+			ctx.ui.notify("That Markdown file is outside an Obsidian vault.", "warning");
+			return null;
+		}
+		const notes = browsableNotes(notesDirFor(ctx));
+		if (!notes.length) {
+			ctx.ui.notify(`No Markdown notes found in ${notesDirFor(ctx)}. Start one with /learn new <topic>.`, "warning");
+			return null;
+		}
+		const lower = query.replace(/\.md$/i, "").toLowerCase();
+		let matches = notes;
+		if (lower) {
+			const exact = notes.filter((note) => [note.relativePath.replace(/\.md$/i, ""), path.basename(note.file, ".md"), note.title].some((value) => value.toLowerCase() === lower));
+			if (exact.length === 1) return exact[0].file;
+			matches = exact.length > 1 ? exact : notes.filter((note) => [note.relativePath, note.title].some((value) => value.toLowerCase().includes(lower)));
+			if (matches.length === 1) return matches[0].file;
+			if (!matches.length) {
+				ctx.ui.notify(`No learning note matches "${query}". Try /learn search with a shorter title.`, "warning");
+				return null;
+			}
+			if (action !== "search") {
+				ctx.ui.notify(`Several notes match "${query}". Use autocomplete, a fuller name, or /learn search ${query}.`, "warning");
+				return null;
+			}
+		}
+		const options = matches.map((note) => note.relativePath);
+		const selected = await ctx.ui.select(action === "resume" ? "Resume a learning note" : "Choose an Obsidian note", options);
+		return matches.find((note) => note.relativePath === selected)?.file ?? null;
+	}
+
 	function regenerateIndex(notesDir: string): void {
 		try {
 			if (!fs.statSync(notesDir).isDirectory()) return;
@@ -732,18 +814,6 @@ export default function mdLog(pi: ExtensionAPI) {
 
 	// --- Resume ---
 
-	function resolveNote(arg: string, ctx: any): string | null {
-		let a = arg.trim();
-		if ((a.startsWith('"') && a.endsWith('"')) || (a.startsWith("'") && a.endsWith("'"))) a = a.slice(1, -1).trim();
-		if (a.startsWith("[[") && a.endsWith("]]")) a = a.slice(2, -2).split("|")[0].trim();
-		if (!a) return null;
-		const withMd = (p: string) => (p.toLowerCase().endsWith(".md") ? [p] : [p, `${p}.md`]);
-		const candidates: string[] = path.isAbsolute(a)
-			? withMd(a)
-			: [...withMd(path.resolve(notesDirFor(ctx), a)), ...withMd(path.resolve(ctx.cwd, a))];
-		return candidates.find(isFile) ?? null;
-	}
-
 	async function sendBrief(ctx: any, brief: string): Promise<void> {
 		const message = { customType: "learn-resume", content: brief, display: false };
 		if (typeof ctx.sendMessage === "function") {
@@ -753,7 +823,7 @@ export default function mdLog(pi: ExtensionAPI) {
 		}
 	}
 
-	const self: MdLogInstance = {
+	const self: ObsidianLinkInstance = {
 		async resumeHere(ctx, file, opts) {
 			const link = await linkNote(ctx, file, { resume: true, persist: opts.persist });
 			regenerateIndex(notesDirFor(ctx));
@@ -775,14 +845,14 @@ export default function mdLog(pi: ExtensionAPI) {
 		}
 		// The current session already has a conversation: continue in a fresh one.
 		// Session replacement invalidates this `pi`/ctx and re-runs the factory, so
-		// the md-log entry is written by `setup` and the rest runs in the NEW
+		// the link entry is written by `setup` and the rest runs in the NEW
 		// instance with the fresh ctx.
 		const result = await ctx.newSession({
 			setup: async (sessionManager: any) => {
-				sessionManager.appendCustomEntry?.("md-log", { file });
+				sessionManager.appendCustomEntry?.(LEARN_LINK_ENTRY, { file });
 			},
 			withSession: async (fresh: any) => {
-				const latest = (globalThis as any)[INSTANCE_KEY] as MdLogInstance | undefined;
+				const latest = (globalThis as any)[INSTANCE_KEY] as ObsidianLinkInstance | undefined;
 				try {
 					await (latest ?? self).resumeHere(fresh, file, { persist: false });
 				} catch (e) {
@@ -795,144 +865,174 @@ export default function mdLog(pi: ExtensionAPI) {
 
 	// --- Commands ---
 
-	pi.registerCommand("md-log", {
-		description: "Mirror the session to a markdown file (backfills history)",
-		handler: async (args, ctx: any) => {
-			const filepath = args.trim();
-			if (!filepath) {
-				ctx.ui.notify("Usage: /md-log <filepath>", "warning");
-				return;
-			}
-			if (typeof ctx.isIdle === "function" && !ctx.isIdle()) {
-				ctx.ui.notify("Wait for the agent to finish before linking.", "warning");
-				return;
-			}
+	const idle = (ctx: any, action: string): boolean => {
+		if (typeof ctx.isIdle !== "function" || ctx.isIdle()) return true;
+		ctx.ui.notify(`Wait for the agent to finish before ${action}.`, "warning");
+		return false;
+	};
 
-			const resolved = path.isAbsolute(filepath) ? filepath : path.resolve(ctx.cwd, filepath);
-
-			// The file must already exist — /md-log links into an existing note,
-			// it never creates one. This avoids silently scattering new files
-			// (and parent directories) around the vault from a typo'd path.
-			if (!fs.existsSync(resolved)) {
-				ctx.ui.notify(`File does not exist: ${resolved}`, "error");
-				return;
-			}
-			if (!fs.statSync(resolved).isFile()) {
-				ctx.ui.notify(`Not a file: ${resolved}`, "error");
-				return;
-			}
-
-			let link: LinkResult;
-			try {
-				link = await linkNote(ctx, resolved, {});
-			} catch (e) {
-				ctx.ui.notify(`Could not link ${resolved}: ${(e as Error).message}`, "error");
-				return;
-			}
-			// The index lives in the notes dir and lists only that folder.
-			const notesDir = notesDirFor(ctx);
-			if (samePath(path.dirname(resolved), notesDir)) regenerateIndex(notesDir);
-
-			ctx.ui.notify(`Linked: ${resolved} → ${link.heading} (${link.written} entries backfilled)`, "info");
-		},
-	});
-
-	pi.registerCommand("md-unlog", {
-		description: "Stop mirroring the session to a markdown file",
-		handler: async (_args, ctx) => {
-			if (!logFile) {
-				ctx.ui.notify("No file linked", "warning");
-				return;
-			}
-			const name = path.basename(logFile);
-			pi.appendEntry("md-log", { file: null });
-			setLinked(null, ctx);
-			ctx.ui.notify(`Unlinked: ${name}`, "info");
-		},
-	});
-
-	pi.registerCommand("learn", {
-		description: "Show learning options, or start a topic with /learn <topic>",
-		getArgumentCompletions: (prefix) => "help".startsWith(prefix.trim().toLowerCase()) ? [{ value: "help", label: "help", description: "Show pi-learn commands and how to use them" }] : null,
-		handler: async (args, ctx: any) => {
-			const topic = args.trim().replace(/\s+/g, " ");
-			if (!topic || topic.toLowerCase() === "help" || topic === "--help") {
-				pi.sendMessage({ customType: "pi-learn-help", content: learnHelp(notesDirFor(ctx)), display: true }, { triggerTurn: false });
-				return;
-			}
-			if (typeof ctx.isIdle === "function" && !ctx.isIdle()) {
-				ctx.ui.notify("Wait for the agent to finish before starting a lesson.", "warning");
-				return;
-			}
-			const name = sanitizeNoteName(topic);
-			if (!name || name === INDEX_BASENAME) {
-				ctx.ui.notify(`Cannot make a note name from "${topic}". Try a different wording.`, "warning");
-				return;
-			}
-			const notesDir = notesDirFor(ctx);
-			if (!fs.existsSync(notesDir) || !fs.statSync(notesDir).isDirectory()) {
-				ctx.ui.notify(`Notes folder does not exist: ${notesDir} (set PI_LEARN_NOTES_DIR or pi-learn.json notesDir)`, "error");
-				return;
-			}
-			const file = path.join(notesDir, `${name}.md`);
-			if (fs.existsSync(file)) {
-				// Never overwrite: an existing note means "continue it".
-				try {
-					await resumeNote(ctx, file);
-				} catch (e) {
-					ctx.ui.notify(`Could not resume ${path.basename(file)}: ${(e as Error).message}`, "error");
-				}
-				return;
-			}
-			let link: LinkResult;
-			try {
-				fs.writeFileSync(file, "", { encoding: "utf-8", flag: "wx" });
-				link = await linkNote(ctx, file, { topic, tags: true });
-			} catch (e) {
-				ctx.ui.notify(`Could not create ${file}: ${(e as Error).message}`, "error");
-				return;
-			}
+	async function startTopic(raw: string, ctx: any): Promise<void> {
+		if (!idle(ctx, "starting a lesson")) return;
+		const topic = raw.trim().replace(/\s+/g, " ");
+		const name = sanitizeNoteName(topic);
+		if (!name || name === INDEX_BASENAME) {
+			ctx.ui.notify("Usage: /learn new <topic>", "warning");
+			return;
+		}
+		const notesDir = notesDirFor(ctx);
+		if (!fs.existsSync(notesDir) || !fs.statSync(notesDir).isDirectory()) {
+			ctx.ui.notify(`Notes folder does not exist: ${notesDir}. Set it with /learn obsidian <vault>.`, "error");
+			return;
+		}
+		const file = path.join(notesDir, `${name}.md`);
+		if (fs.existsSync(file)) {
+			await continueNote(file, ctx);
+			return;
+		}
+		try {
+			fs.writeFileSync(file, "", { encoding: "utf-8", flag: "wx" });
+			const link = await linkNote(ctx, file, { topic, tags: true });
 			regenerateIndex(notesDir);
 			ctx.ui.notify(`Learning note: ${file} → ${link.heading}`, "info");
 			pi.sendUserMessage(`Teach me: ${topic}`);
+		} catch (e) {
+			ctx.ui.notify(`Could not start ${name}: ${(e as Error).message}`, "error");
+		}
+	}
+
+	async function continueNote(file: string, ctx: any): Promise<void> {
+		try {
+			fs.accessSync(file, fs.constants.R_OK | fs.constants.W_OK);
+			await resumeNote(ctx, file);
+		} catch (e) {
+			ctx.ui.notify(`Could not resume ${path.basename(file)}: ${(e as Error).message}`, "error");
+		}
+	}
+
+	async function openExisting(raw: string, ctx: any, action: "open" | "search"): Promise<void> {
+		if (!idle(ctx, "opening a note")) return;
+		const file = await chooseNote(raw, ctx, action);
+		if (!file) return;
+		if (logFile && samePath(logFile, file)) {
+			ctx.ui.notify(`Already linked: ${file}`, "info");
+			return;
+		}
+		try {
+			const link = await linkNote(ctx, file, { backfill: false });
+			if (samePath(path.dirname(file), notesDirFor(ctx))) regenerateIndex(notesDirFor(ctx));
+			ctx.ui.notify(`Linked: ${file} → ${link.heading}`, "info");
+		} catch (e) {
+			ctx.ui.notify(`Could not open ${file}: ${(e as Error).message}`, "error");
+		}
+	}
+
+	async function resumeExisting(raw: string, ctx: any, latestByDefault = false): Promise<void> {
+		if (!idle(ctx, "resuming a lesson")) return;
+		let file: string | null;
+		if (!raw.trim() && latestByDefault) {
+			const latest = pickMostRecent(learningNotes(notesDirFor(ctx)));
+			file = latest ? latest.file : null;
+			if (!file) ctx.ui.notify("No learning notes found. Start with /learn new <topic>.", "warning");
+		} else {
+			file = await chooseNote(raw, ctx, "resume");
+		}
+		if (file) await continueNote(file, ctx);
+	}
+
+	function setObsidianFolder(raw: string, ctx: any): void {
+		const input = cleanNoteArgument(raw);
+		if (!input) {
+			ctx.ui.notify(`Learning notes folder: ${notesDirFor(ctx)}`, "info");
+			return;
+		}
+		const supplied = path.resolve(ctx.cwd, input);
+		if (!fs.existsSync(supplied) || !fs.statSync(supplied).isDirectory()) {
+			ctx.ui.notify(`Folder does not exist: ${supplied}`, "error");
+			return;
+		}
+		const vault = findVaultRoot(supplied);
+		if (!vault) {
+			ctx.ui.notify(`No Obsidian vault contains ${supplied}. Choose a folder with a .obsidian directory above it.`, "error");
+			return;
+		}
+		const folder = samePath(vault, supplied) ? path.join(vault, "Learn") : supplied;
+		try {
+			fs.mkdirSync(folder, { recursive: true });
+			const configPath = agentConfigPath();
+			let config: Record<string, unknown> = {};
+			if (fs.existsSync(configPath)) {
+				const existing = JSON.parse(fs.readFileSync(configPath, "utf8"));
+				if (!existing || typeof existing !== "object" || Array.isArray(existing)) throw new Error("pi-learn.json is not a JSON object");
+				config = existing;
+			}
+			config.notesDir = folder;
+			fs.mkdirSync(path.dirname(configPath), { recursive: true });
+			fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+			ctx.ui.notify(`Learning notes folder: ${folder}${process.env.PI_LEARN_NOTES_DIR ? " (PI_LEARN_NOTES_DIR currently overrides it)" : ""}`, "info");
+		} catch (e) {
+			ctx.ui.notify(`Could not save Obsidian folder: ${(e as Error).message}`, "error");
+		}
+	}
+
+	const actions = [
+		{ value: "new ", label: "new", description: "Start a topic and create its note" },
+		{ value: "open ", label: "open", description: "Search and link an existing note" },
+		{ value: "search ", label: "search", description: "Find a note and choose it" },
+		{ value: "resume ", label: "resume", description: "Continue from a note's contents" },
+		{ value: "status", label: "status", description: "Show the linked note" },
+		{ value: "close", label: "close", description: "Unlink the current note" },
+		{ value: "obsidian ", label: "obsidian", description: "Show or set the vault notes folder" },
+		{ value: "help", label: "help", description: "Show commands and usage" },
+	];
+
+	pi.registerCommand("learn", {
+		description: "Learn with searchable Obsidian notes: new, open, search, resume, status, close",
+		getArgumentCompletions: (prefix) => {
+			const trimmed = prefix.trimStart();
+			if (!trimmed || !trimmed.includes(" ")) return actions.filter((item) => item.label.startsWith(trimmed.toLowerCase()));
+			const match = /^(open|search|resume)\s+([\s\S]*)$/i.exec(trimmed);
+			if (!match) return null;
+			const action = match[1].toLowerCase();
+			const query = cleanNoteArgument(match[2]).toLowerCase();
+			return browsableNotes(notesDirFor({ cwd: currentCwd }))
+				.filter((note) => !query || note.title.toLowerCase().includes(query) || note.relativePath.toLowerCase().includes(query))
+				.slice(0, 50)
+				.map((note) => ({ value: `${action} "${note.relativePath}"`, label: note.title,
+					description: `${note.status} · ${note.sessions} session(s) · ${note.relativePath}` }));
+		},
+		handler: async (args, ctx: any) => {
+			currentCwd = ctx.cwd;
+			const trimmed = args.trim();
+			if (!trimmed || /^(?:help|--help)$/i.test(trimmed)) {
+				pi.sendMessage({ customType: "pi-learn-help", content: learnHelp(notesDirFor(ctx)), display: true }, { triggerTurn: false });
+				return;
+			}
+			const parsed = /^(\S+)(?:\s+([\s\S]*))?$/.exec(trimmed)!;
+			const action = parsed[1].toLowerCase();
+			const value = parsed[2] ?? "";
+			if (action === "new") return startTopic(value, ctx);
+			if (action === "open" || action === "link") return openExisting(value, ctx, "open");
+			if (action === "search") return openExisting(value, ctx, "search");
+			if (action === "resume") return resumeExisting(value, ctx);
+			if (action === "obsidian") return setObsidianFolder(value, ctx);
+			if (action === "status") {
+				ctx.ui.notify(logFile ? `Linked learning note: ${logFile}` : `No note linked. Learning notes folder: ${notesDirFor(ctx)}`, "info");
+				return;
+			}
+			if (action === "close") {
+				if (!logFile) { ctx.ui.notify("No note linked", "warning"); return; }
+				const name = path.basename(logFile);
+				pi.appendEntry(LEARN_LINK_ENTRY, { file: null });
+				setLinked(null, ctx);
+				ctx.ui.notify(`Unlinked: ${name}`, "info");
+				return;
+			}
+			return startTopic(trimmed, ctx); // /learn <topic> remains a shortcut for /learn new <topic>.
 		},
 	});
 
 	pi.registerCommand("learn-resume", {
-		description: "Continue a learning note (default: the most recently studied one)",
-		handler: async (args, ctx: any) => {
-			if (typeof ctx.isIdle === "function" && !ctx.isIdle()) {
-				ctx.ui.notify("Wait for the agent to finish before resuming.", "warning");
-				return;
-			}
-			const notesDir = notesDirFor(ctx);
-			let file: string | null;
-			if (args.trim()) {
-				file = resolveNote(args, ctx);
-				if (!file) {
-					ctx.ui.notify(`Learning note not found: ${args.trim()} (looked in ${notesDir} and ${ctx.cwd})`, "error");
-					return;
-				}
-			} else {
-				const latest = pickMostRecent(learningNotes(notesDir));
-				if (!latest) {
-					ctx.ui.notify(`No learning notes in ${notesDir}. Start one with /learn <topic>.`, "error");
-					return;
-				}
-				file = path.join(notesDir, `${latest.basename}.md`);
-			}
-			try {
-				fs.accessSync(file, fs.constants.R_OK | fs.constants.W_OK);
-				fs.readFileSync(file, "utf-8");
-			} catch (e) {
-				ctx.ui.notify(`Cannot read learning note ${file}: ${(e as Error).message}`, "error");
-				return;
-			}
-			try {
-				await resumeNote(ctx, file);
-			} catch (e) {
-				ctx.ui.notify(`Could not resume ${path.basename(file)}: ${(e as Error).message}`, "error");
-			}
-		},
+		description: "Shortcut for /learn resume (latest note when no name is given)",
+		handler: async (args, ctx: any) => resumeExisting(args, ctx, true),
 	});
 }

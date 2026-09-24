@@ -13,6 +13,7 @@ import {
 
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII=", "base64");
 const SHA1 = "a".repeat(40);
+const ALT = "Underside of a BGA package showing rows of solder balls";
 
 function page(overrides = {}) {
 	return {
@@ -63,7 +64,10 @@ test("search uses Commons file namespace, relevance order, raster and license fi
 	const unlicensed = page({ pageid: 999, title: "File:Unknown.png", index: 4, imageinfo: [{ ...page().imageinfo[0], extmetadata: {} }] });
 	const badHost = page({ pageid: 998, title: "File:Bad.png", index: 5, imageinfo: [{ ...page().imageinfo[0], thumburl: "https://evil.example/bad.png" }] });
 	const nonCommercial = page({ pageid: 997, title: "File:NC.png", index: 6, imageinfo: [{ ...page().imageinfo[0], extmetadata: { ...page().imageinfo[0].extmetadata, LicenseShortName: { value: "CC BY-NC 4.0" } } }] });
-	const network = fakeNetwork({ searchPages: [badHost, newer, svg, unlicensed, nonCommercial, valid] });
+	const uncredited = page({ pageid: 996, title: "File:Uncredited.png", index: 7, imageinfo: [{ ...page().imageinfo[0], extmetadata: { LicenseShortName: { value: "CC0" } } }] });
+	const unknownArtist = page({ pageid: 995, title: "File:Unknown artist.png", index: 8, imageinfo: [{ ...page().imageinfo[0], extmetadata: { ...page().imageinfo[0].extmetadata, Artist: { value: "Unknown" } } }] });
+	const missingLicenseLink = page({ pageid: 994, title: "File:Unclear license.png", index: 9, imageinfo: [{ ...page().imageinfo[0], extmetadata: { ...page().imageinfo[0].extmetadata, LicenseUrl: { value: "" } } }] });
+	const network = fakeNetwork({ searchPages: [badHost, newer, svg, unlicensed, nonCommercial, uncredited, unknownArtist, missingLicenseLink, valid] });
 	const result = await searchCommonsImages("  blood glucose microscope  ", { fetchImpl: network.fetchImpl, limit: 4 });
 	assert.deepEqual(result.map((c) => c.id), ["123", "456"]);
 	assert.equal(result[0].artist, "Jane & Joe");
@@ -105,10 +109,10 @@ test("import writes a local vault image and stable embed with attribution, then 
 	writeFileSync(note, "# A lesson\n");
 	const network = fakeNetwork();
 	const candidate = (await searchCommonsImages("test", { fetchImpl: network.fetchImpl }))[0];
-	const options = { cwd: join(root, "Learn"), linkedNote: note, fetchImpl: network.fetchImpl };
+	const options = { cwd: join(root, "Learn"), linkedNote: note, altText: ALT, fetchImpl: network.fetchImpl };
 	const first = await importCommonsImage(candidate, options);
 	assert.equal(first.reused, false);
-	assert.match(first.embed, /^!\[\[pi-learn-images\/commons-123-[a-f0-9]{20}\.png\|500\]\]$/);
+	assert.match(first.embed, /^!\[Underside of a BGA package showing rows of solder balls\]\(<\.\.\/pi-learn-images\/commons-123-[a-f0-9]{20}\.png>\)$/);
 	assert.deepEqual(readFileSync(first.path), PNG);
 	assert.match(first.attribution, /Jane & Joe/);
 	assert.match(first.attribution, /CC BY-SA 4\.0/);
@@ -127,8 +131,8 @@ test("import rejects changed files and non-vault destinations", async () => {
 	const network = fakeNetwork();
 	const candidate = (await searchCommonsImages("test", { fetchImpl: network.fetchImpl }))[0];
 	const changed = fakeNetwork({ freshPage: page({ imageinfo: [{ ...page().imageinfo[0], sha1: "b".repeat(40) }] }) });
-	await assert.rejects(importCommonsImage(candidate, { cwd: vault, fetchImpl: changed.fetchImpl }), /changed since the search/);
-	await assert.rejects(importCommonsImage(candidate, { cwd: root, fetchImpl: network.fetchImpl }), /inside an Obsidian vault/);
+	await assert.rejects(importCommonsImage(candidate, { cwd: vault, altText: ALT, fetchImpl: changed.fetchImpl }), /changed since the search/);
+	await assert.rejects(importCommonsImage(candidate, { cwd: root, altText: ALT, fetchImpl: network.fetchImpl }), /inside an Obsidian vault/);
 });
 
 test("import refuses an existing non-file at its destination", async () => {
@@ -138,5 +142,15 @@ test("import refuses an existing non-file at its destination", async () => {
 	const candidate = (await searchCommonsImages("test", { fetchImpl: network.fetchImpl }))[0];
 	const digest = createHash("sha256").update(PNG).digest("hex").slice(0, 20);
 	mkdirSync(join(vault, "pi-learn-images", `commons-123-${digest}.png`), { recursive: true });
-	await assert.rejects(importCommonsImage(candidate, { cwd: vault, fetchImpl: network.fetchImpl }), /not a regular file/);
+	await assert.rejects(importCommonsImage(candidate, { cwd: vault, altText: ALT, fetchImpl: network.fetchImpl }), /not a regular file/);
+});
+
+test("import rejects absent alt text before any network call or vault write", async () => {
+	const vault = mkdtempSync(join(tmpdir(), "pi-learn-commons-alt-"));
+	mkdirSync(join(vault, ".obsidian"));
+	const network = fakeNetwork();
+	const candidate = (await searchCommonsImages("test", { fetchImpl: network.fetchImpl }))[0];
+	const beforeImport = network.calls.length;
+	await assert.rejects(importCommonsImage(candidate, { cwd: vault, altText: "image", fetchImpl: network.fetchImpl }), /alt text/);
+	assert.equal(network.calls.length, beforeImport);
 });

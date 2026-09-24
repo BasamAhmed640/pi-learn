@@ -1,4 +1,4 @@
-// Session fixtures for tests/integration/md-log.test.mjs: the same lesson expressed
+// Session fixtures for Obsidian-link integration tests: the same lesson expressed
 // as persisted session entries (for backfill) and as live extension events.
 
 export const VALID_MERMAID = "```mermaid\nflowchart TD\n%% dependency-map\n  A[Sorted array] --> B[Halving]\n```";

@@ -3,13 +3,13 @@
 //
 //   node tests/e2e/harness.mjs --scenario nonsys-prime [--run-id X] [--thinking medium]
 //        [--model provider/id] [--realistic] [--vault DIR] [--max-user-turns N] [--p 0.7]
-//        [--timeout-min 12] [--seed S] [--no-learn-command]
+//        [--timeout-min 12] [--seed S]
 //
 // Usually launched by tests/e2e/run.mjs (one child process per scenario). The last stdout line
 // is `E2E_RESULT {json}` so the parent can summarise without re-reading the trace.
 import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync, readFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { importPiSdk, packageExtensionPaths, piVersion, repoRoot, skillsDir } from "../helpers/pi.mjs";
 import { createSimulatedUI, makeRng } from "./learner.mjs";
@@ -57,7 +57,6 @@ const textOf = (content) =>
 		: Array.isArray(content)
 			? content.filter((c) => c?.type === "text").map((c) => c.text).join("\n")
 			: "";
-const safeName = (s) => s.replace(/[\\/:*?"<>|#^[\]]/g, " ").replace(/\s+/g, " ").trim().slice(0, 90);
 
 function hasMermaid(text) {
 	return /```mermaid\b/.test(text);
@@ -87,7 +86,7 @@ export function isPlanPresentation(text) {
  * @param {string} o.thinking
  * @param {string} [o.model]    provider/id
  * @param {boolean} o.realistic
- * @param {boolean} [o.noLearnCommand]  ignore /learn and /learn-resume (baseline /md-log path)
+ * @param {string} o.vault     acceptance vault root
  * @param {number} o.maxUserTurns
  * @param {"topic"|"resume"} o.start
  * @param {string} [o.resumeNote]
@@ -140,6 +139,7 @@ export async function runSession(o) {
 	}
 
 	mkdirSync(o.notesDir, { recursive: true });
+	mkdirSync(join(o.vault, ".obsidian"), { recursive: true });
 	mkdirSync(o.sessionsDir, { recursive: true });
 	process.env.PI_LEARN_NOTES_DIR = o.notesDir;
 
@@ -462,35 +462,20 @@ export async function runSession(o) {
 	let stopReason = null;
 	try {
 		// First message.
-		const hasLearn = commands.includes("learn") && !o.noLearnCommand;
-		const hasResume = commands.includes("learn-resume") && !o.noLearnCommand;
+		if (!commands.includes("learn")) throw new Error("pi-learn /learn command is not loaded");
+		if (commands.includes("md-log") || commands.includes("md-unlog")) throw new Error("retired note-logging commands are still loaded");
 		let first;
 		if (o.start === "resume") {
-			if (hasResume) {
-				trace.driver.startMode = "learn-resume-command";
-				first = await send(`/learn-resume ${o.resumeNote}`, { isCommand: true });
-			} else {
-				trace.driver.startMode = "fallback-md-log-resume";
-				await send(`/md-log ${o.resumeNote}`, { isCommand: true });
-				first = await send(
-					`/skill:teach Let's resume my lesson on "${o.scenario.topic}". My notes from last time are in ${o.resumeNote} — read them and continue where we left off.`,
-				);
-			}
-		} else if (hasLearn) {
-			trace.driver.startMode = "learn-command";
-			first = await send(`/learn ${o.scenario.topic}`, { isCommand: true });
+			trace.driver.startMode = "learn-resume-command";
+			first = await send(`/learn resume "${o.resumeNote}"`, { isCommand: true });
 		} else {
-			trace.driver.startMode = "fallback-md-log";
-			const notePath = join(o.notesDir, `${safeName(o.scenario.topic)}.md`);
-			if (!existsSync(notePath)) writeFileSync(notePath, `# ${o.scenario.topic}\n`, "utf8");
-			trace.paths.fallbackNote = notePath;
-			await send(`/md-log ${notePath}`, { isCommand: true });
-			first = await send(`/skill:teach ${o.scenario.topic}`);
+			trace.driver.startMode = "learn-command";
+			first = await send(`/learn new ${o.scenario.topic}`, { isCommand: true });
 		}
 		if (first === "timeout") stopReason = "timeout";
 
 		while (!stopReason) {
-			const userTurns = trace.userPrompts.filter((u) => !u.text.startsWith("/md-log")).length;
+			const userTurns = trace.userPrompts.length;
 			if (userTurns >= o.maxUserTurns) {
 				stopReason = "maxUserTurns";
 				break;
@@ -531,10 +516,9 @@ export async function runSession(o) {
 	let note = globalThis.__piLearn?.linkedNote || null;
 	if (!note) {
 		for (const e of session.sessionManager.getEntries()) {
-			if (e.type === "custom" && e.customType === "md-log" && e.data?.file) note = e.data.file;
+			if (e.type === "custom" && e.customType === "learn-link" && e.data?.file) note = e.data.file;
 		}
 	}
-	if (!note && trace.paths.fallbackNote) note = trace.paths.fallbackNote;
 	if (!note) note = newestNote(o.notesDir);
 	trace.paths.note = note;
 	trace.finishedAt = new Date().toISOString();
@@ -567,7 +551,7 @@ export function summarize(trace) {
 		kind: trace.scenario.kind,
 		ok: phases.every((p) => p.driver.stopReason !== "error") && !trace.fatal,
 		stopReason: phases.map((p) => p.driver.stopReason).join("+"),
-		userTurns: phases.reduce((n, p) => n + p.userPrompts.filter((u) => !u.text.startsWith("/md-log")).length, 0),
+		userTurns: phases.reduce((n, p) => n + p.userPrompts.length, 0),
 		qaExecuted: qa.filter((c) => c.executed).length,
 		qaBlocked: qa.filter((c) => c.blocked).length,
 		quizExecuted: qa.filter((c) => c.name === "quiz" && c.executed).length,
@@ -594,7 +578,7 @@ function resumeVerdict(a, b) {
 		return inter / (X.size + Y.size - inter);
 	};
 	const aProbe = a.toolCalls.filter((c) => c.name === "quiz" && c.executed && !c.afterApproval).map((c) => c.args?.question);
-	const bFirstRun = b.toolCalls.filter((c) => c.turn <= 1 + (b.driver.startMode === "fallback-md-log-resume" ? 1 : 0));
+	const bFirstRun = b.toolCalls.filter((c) => c.turn <= 1);
 	const bQuizzesFirstRun = bFirstRun.filter((c) => c.name === "quiz" && c.executed);
 	const repeated = bQuizzesFirstRun.filter((c) => aProbe.some((q) => jacc(q, c.args?.question) >= 0.5)).length;
 	const bFirstText = b.assistantMessages.filter((m) => m.turn <= 2).map((m) => m.text).join("\n");
@@ -629,10 +613,10 @@ async function main() {
 	const common = {
 		scenario,
 		runId,
+		vault,
 		thinking: String(args.thinking || "medium"),
 		model: args.model ? String(args.model) : undefined,
 		realistic: !!args.realistic,
-		noLearnCommand: !!args["no-learn-command"],
 		notesDir,
 		seed: String(args.seed || `${runId}:${scenario.id}`),
 	};
@@ -685,7 +669,6 @@ async function main() {
 				const childArgs = [fileURLToPath(import.meta.url), "--scenario", scenario.id, "--phase", "B", "--run-id", runId, "--vault", vault, "--note", a.paths.note, "--phase-out", phaseOut, "--thinking", common.thinking, "--seed", common.seed];
 				if (common.model) childArgs.push("--model", common.model);
 				if (common.realistic) childArgs.push("--realistic");
-				if (common.noLearnCommand) childArgs.push("--no-learn-command");
 				for (const k of ["timeout-min", "max-user-turns", "max-quiz-checks", "p"]) {
 					if (args[k] !== undefined && args[k] !== true) childArgs.push(`--${k}`, String(args[k]));
 				}

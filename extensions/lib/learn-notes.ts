@@ -2,7 +2,7 @@
  * learn-notes — pure helpers for pi-learn's Obsidian notes (no pi imports, no I/O).
  *
  * Everything here is string-in / string-out so it can be unit-tested with
- * `node --test` and loaded by pi's jiti runtime alike. md-log.ts owns the I/O.
+ * `node --test` and loaded by pi's jiti runtime alike. obsidian-link.ts owns the I/O.
  *
  * Note layout (see docs/CONTRACTS.md §2):
  *
@@ -727,7 +727,7 @@ function cell(s: string): string {
 export function buildIndexNote(summaries: NoteSummary[]): string {
 	const rows = sortSummaries(summaries.filter((s) => s.basename !== INDEX_BASENAME));
 	const lines = [
-		"Learning notes created by pi-learn, newest first. This note is regenerated automatically on /learn, /learn-resume and /md-log — edits here are overwritten.",
+		"Learning notes created by pi-learn, newest first. This note is regenerated automatically when you link or resume a learning note — edits here are overwritten.",
 		"",
 		"| Note | Topic | Status | Sessions | Last studied |",
 		"| --- | --- | --- | --- | --- |",

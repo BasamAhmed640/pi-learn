@@ -1,4 +1,4 @@
-// Integration tests for extensions/md-log.ts, loaded through pi's real extension loader
+// Integration tests for extensions/obsidian-link.ts, loaded through pi's real extension loader
 // and driven with fake events and a fake command context.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -19,7 +19,7 @@ import {
 } from "../fixtures/md-log/session.mjs";
 
 const fixturesDir = join(repoRoot, "tests", "fixtures", "md-log");
-const realExtension = join(repoRoot, "extensions", "md-log.ts");
+const realExtension = join(repoRoot, "extensions", "obsidian-link.ts");
 const ALLOWED_LEVELS = new Set([undefined, "info", "warning", "error"]);
 
 let loader;
@@ -27,7 +27,7 @@ let root;
 // Amos Blomqvist's last upstream commit (amosblomqvist/learn "updated thumbnail"); the fork builds on it.
 const UPSTREAM_BASELINE = "7cfd894";
 let originalExtension; // md-log.ts from Amos's upstream baseline commit
-let stubExtension; // real md-log.ts copied next to stub lib/mermaid.ts + lib/obsidian-style.ts
+let stubExtension; // real Obsidian link copied next to deterministic stand-ins
 const savedEnv = process.env.PI_LEARN_NOTES_DIR;
 
 before(async () => {
@@ -41,9 +41,10 @@ before(async () => {
 	// Same code, but with deterministic stand-ins for the modules other work packages own.
 	const stubDir = join(root, "stub-ext");
 	mkdirSync(join(stubDir, "lib"), { recursive: true });
-	stubExtension = join(stubDir, "md-log.ts");
+	stubExtension = join(stubDir, "obsidian-link.ts");
 	copyFileSync(realExtension, stubExtension);
 	copyFileSync(join(repoRoot, "extensions", "lib", "learn-notes.ts"), join(stubDir, "lib", "learn-notes.ts"));
+	copyFileSync(join(repoRoot, "extensions", "lib", "learn-link-state.ts"), join(stubDir, "lib", "learn-link-state.ts"));
 	writeFileSync(
 		join(stubDir, "lib", "mermaid.ts"),
 		`export async function validateMermaid(source: string) {
@@ -54,7 +55,8 @@ before(async () => {
 	);
 	writeFileSync(
 		join(stubDir, "lib", "obsidian-style.ts"),
-		`export async function ensureLearnStyle(notePath: string) {
+		`export function findVaultRoot(start: string) { return start; }
+export async function ensureLearnStyle(notePath: string) {
 	((globalThis as any).__stubStyleCalls ??= []).push(notePath);
 	return { status: "customized", message: "pi-learn.css was customized; not overwriting" };
 }
@@ -73,6 +75,7 @@ after(() => {
 function newDir(name) {
 	const dir = join(root, `${name}-${Math.random().toString(36).slice(2, 8)}`);
 	mkdirSync(dir, { recursive: true });
+	mkdirSync(join(dir, ".obsidian"));
 	return dir;
 }
 
@@ -127,6 +130,21 @@ async function command(ext, name, args, ctx) {
 	await cmd.handler(args, ctx);
 }
 
+async function open(ext, file, ctx) {
+	await command(ext, "learn", `open "${file}"`, ctx);
+}
+
+async function newTopic(ext, notesDir, topic, ctx) {
+	const previous = process.env.PI_LEARN_NOTES_DIR;
+	try {
+		process.env.PI_LEARN_NOTES_DIR = notesDir;
+		await command(ext, "learn", `new ${topic}`, ctx);
+	} finally {
+		if (previous === undefined) delete process.env.PI_LEARN_NOTES_DIR;
+		else process.env.PI_LEARN_NOTES_DIR = previous;
+	}
+}
+
 const read = (p) => readFileSync(p, "utf8");
 const normalizeUpdated = (t) => t.replace(/^learn-updated: .*$/m, "learn-updated: <t>");
 const marker = (sid) => `%% learn-session: ${sid} %%`;
@@ -158,7 +176,7 @@ test("live logging: block formats are byte-identical to the original md-log", as
 	const ctx1 = makeCtx(s1, dir, { anyLevel: true }); // the original notifies "success"
 	const ctx2 = makeCtx(s2, dir);
 	await command(orig.ext, "md-log", origFile, ctx1);
-	await command(mine.ext, "md-log", newFile, ctx2);
+	await open(mine.ext, newFile, ctx2);
 	for (const [name, event] of liveLessonEvents()) {
 		await emit(orig.ext, name, event, ctx1);
 		await emit(mine.ext, name, event, ctx2);
@@ -179,7 +197,6 @@ test("backfill: block formats are byte-identical to the original md-log", async 
 	const origFile = join(dir, "orig.md");
 	const newFile = join(dir, "new.md");
 	writeFileSync(origFile, "");
-	writeFileSync(newFile, "");
 	const s1 = fillLesson(createSession("aaaaaaaa-bf-orig"));
 	const s2 = fillLesson(createSession("bbbbbbbb-bf-new"));
 	const orig = await load(originalExtension, s1, dir);
@@ -187,29 +204,29 @@ test("backfill: block formats are byte-identical to the original md-log", async 
 	const ctx1 = makeCtx(s1, dir, { anyLevel: true }); // the original notifies "success"
 	const ctx2 = makeCtx(s2, dir);
 	await command(orig.ext, "md-log", origFile, ctx1);
-	await command(mine.ext, "md-log", newFile, ctx2);
+	await newTopic(mine.ext, dir, "new", ctx2);
 	const o = read(origFile);
 	const n = read(newFile);
 	assert.ok(o.includes("> [!note] SKILL loaded: teach"));
 	assert.equal(afterMarker(n, s2.sessionId), `\n${o}`);
 	assert.equal(ctx2.ui.notices.at(-1).level, "info", "success notify replaced by info");
-	assert.match(ctx2.ui.notices.at(-1).message, /Linked: .*new\.md → Session 1 \(\d{4}-\d{2}-\d{2}\) \(\d+ entries backfilled\)/);
+	assert.match(ctx2.ui.notices.at(-1).message, /Learning note: .*new\.md → Session 1 \(\d{4}-\d{2}-\d{2}\)/);
 });
 
 // ─── linking ─────────────────────────────────────────────────────────────────
 
-test("/md-log requires an existing file; /md-log twice in one session is idempotent", async () => {
+test("/learn open requires an existing file and is idempotent", async () => {
 	const dir = newDir("idem");
 	const file = join(dir, "Linear algebra.md");
 	const s = fillLesson(createSession("cccccccc-idem"));
 	const { ext } = await load(realExtension, s, dir);
 	const ctx = makeCtx(s, dir);
-	await command(ext, "md-log", "missing.md", ctx);
-	assert.equal(ctx.ui.notices.at(-1).level, "error");
+	await open(ext, "missing.md", ctx);
+	assert.equal(ctx.ui.notices.at(-1).level, "warning");
 	assert.ok(!existsSync(join(dir, "missing.md")), "never creates the file");
 
 	writeFileSync(file, "");
-	await command(ext, "md-log", file, ctx);
+	await open(ext, file, ctx);
 	const first = read(file);
 	const fm = readFrontmatter(first);
 	assert.equal(fm["learn-topic"], "Linear algebra", "topic defaults to the note's basename");
@@ -221,15 +238,15 @@ test("/md-log requires an existing file; /md-log twice in one session is idempot
 	assert.equal(fm.tags, undefined, "tags only on notes created by /learn");
 	assert.equal(findSessionSections(first).length, 1);
 
-	await command(ext, "md-log", file, ctx);
+	await open(ext, file, ctx);
 	assert.equal(normalizeUpdated(read(file)), normalizeUpdated(first), "re-link regenerates the same section");
 	// the link is persisted, and shared with other extensions
-	assert.equal(s.entries.filter((e) => e.customType === "md-log").length, 2);
+	assert.equal(s.entries.filter((e) => e.customType === "learn-link").length, 1);
 	assert.equal(globalThis.__piLearn.linkedNote, file);
-	assert.equal(ctx.ui.status.get("md-log"), "🗒 Linear algebra.md");
+	assert.equal(ctx.ui.status.get("learn-obsidian"), "🗒 Linear algebra.md");
 });
 
-test("/md-log on a note with a previous session keeps it (and the learner's text) byte-for-byte", async () => {
+test("/learn open keeps previous sessions and learner text byte-for-byte", async () => {
 	const dir = newDir("prev");
 	const file = join(dir, "Binary search trees.md");
 	const original = read(join(fixturesDir, "previous-session.md"));
@@ -237,13 +254,14 @@ test("/md-log on a note with a previous session keeps it (and the learner's text
 	const s = fillLesson(createSession("dddddddd-prev"));
 	const { ext } = await load(realExtension, s, dir);
 	const ctx = makeCtx(s, dir);
-	await command(ext, "md-log", file, ctx);
+	await open(ext, file, ctx);
 	const after = read(file);
 	const before = splitFrontmatter(original);
 	const now = splitFrontmatter(after);
 	assert.ok(now.body.startsWith(before.body), "old sessions + learner text are a byte-for-byte prefix");
-	assert.ok(now.body.slice(before.body.length).startsWith(`\n## Session 2 (${today()})\n${marker(s.sessionId)}\n\n> [!quote] YOU`));
-	assert.ok(!now.body.includes("Continues [[#"), "plain /md-log is not a resume");
+	assert.ok(now.body.slice(before.body.length).startsWith(`\n## Session 2 (${today()})\n${marker(s.sessionId)}\n`));
+	assert.ok(!now.body.slice(before.body.length).includes("> [!quote] YOU"), "opening a note never imports the earlier Pi conversation");
+	assert.ok(!now.body.includes("Continues [[#"), "plain /learn open does not resume");
 	// frontmatter: unknown keys and order kept, own keys merged
 	assert.deepEqual(now.lines.slice(0, 4), ["aliases:", "  - BST basics", 'learn-topic: "Binary search trees"', "rating: 4"]);
 	const fm = readFrontmatter(after);
@@ -259,15 +277,14 @@ test("blocked QA calls produce no callouts (live and backfill)", async () => {
 	const liveFile = join(dir, "live.md");
 	const bfFile = join(dir, "backfill.md");
 	writeFileSync(liveFile, "");
-	writeFileSync(bfFile, "");
 	const s1 = createSession("eeeeeeee-blocked-live");
 	const live = await load(realExtension, s1, dir);
 	const ctx1 = makeCtx(s1, dir);
-	await command(live.ext, "md-log", liveFile, ctx1);
+	await open(live.ext, liveFile, ctx1);
 	for (const [name, event] of liveLessonEvents({ withBlocked: true })) await emit(live.ext, name, event, ctx1);
 	const s2 = fillLesson(createSession("ffffffff-blocked-bf"), { withBlocked: true });
 	const bf = await load(realExtension, s2, dir);
-	await command(bf.ext, "md-log", bfFile, makeCtx(s2, dir));
+	await newTopic(bf.ext, dir, "backfill", makeCtx(s2, dir));
 	for (const text of [read(liveFile), read(bfFile)]) {
 		assert.ok(!text.includes("BLOCKED"), "no question/answer for the blocked call");
 		assert.equal(text.split("> [!question] Quiz\n").length - 1, 1, "only the real quiz");
@@ -284,7 +301,7 @@ test("ask_user_question: written once when it executes; a call blocked at tool_c
 	const s = createSession("abababab-ask-live");
 	const { ext } = await load(realExtension, s, dir);
 	const ctx = makeCtx(s, dir);
-	await command(ext, "md-log", file, ctx);
+	await open(ext, file, ctx);
 	const args = { question: "BLOCKEDASK which way?", options: [{ label: "Left" }, { label: "Right" }] };
 	// Blocked by another extension: tool_call happens, execute() never runs, result is an error.
 	await emit(ext, "tool_call", { toolName: "ask_user_question", toolCallId: "blk", input: args }, ctx);
@@ -308,16 +325,15 @@ test("invalid Mermaid is hidden in the note (live + backfill); valid Mermaid is 
 	const liveFile = join(dir, "live.md");
 	const bfFile = join(dir, "backfill.md");
 	writeFileSync(liveFile, "");
-	writeFileSync(bfFile, "");
 	const s1 = createSession("abababab-mermaid-live");
 	const live = await load(stubExtension, s1, dir);
 	const ctx1 = makeCtx(s1, dir);
-	await command(live.ext, "md-log", liveFile, ctx1);
+	await open(live.ext, liveFile, ctx1);
 	for (const [name, event] of liveLessonEvents({ withMermaid: true })) await emit(live.ext, name, event, ctx1);
 	const s2 = fillLesson(createSession("cdcdcdcd-mermaid-bf"), { withMermaid: true });
 	const bf = await load(stubExtension, s2, dir);
 	const ctx2 = makeCtx(s2, dir);
-	await command(bf.ext, "md-log", bfFile, ctx2);
+	await newTopic(bf.ext, dir, "backfill", ctx2);
 	const expected = `Here is the plan.\n\n${VALID_MERMAID}\n\nAnd a broken one:\n\n${HIDDEN_DIAGRAM_CALLOUT}\n\n%%\n${INVALID_MERMAID}\n%%\n\nDone.`;
 	for (const text of [read(liveFile), read(bfFile)]) {
 		assert.ok(text.includes(`> [!abstract] PI\n\n${expected}`), text);
@@ -325,7 +341,7 @@ test("invalid Mermaid is hidden in the note (live + backfill); valid Mermaid is 
 	assert.ok(globalThis.__stubMermaidCalls > 0, "validator module was imported dynamically");
 	// ensureLearnStyle: called on link, "customized" → exactly one warning per session
 	assert.ok(await waitFor(() => ctx1.ui.notices.some((n) => n.level === "warning")));
-	await command(live.ext, "md-log", liveFile, ctx1);
+	await open(live.ext, liveFile, ctx1);
 	await waitFor(() => globalThis.__stubStyleCalls.length >= 3);
 	await new Promise((r) => setTimeout(r, 50));
 	assert.ok(globalThis.__stubStyleCalls.includes(liveFile));
@@ -333,28 +349,28 @@ test("invalid Mermaid is hidden in the note (live + backfill); valid Mermaid is 
 	assert.equal(ctx1.ui.notices.find((n) => n.level === "warning").message, "pi-learn.css was customized; not overwriting");
 });
 
-test("session_start restores the link; /md-unlog stops logging", async () => {
+test("session_start restores the link; /learn close stops logging", async () => {
 	const dir = newDir("restore");
 	const file = join(dir, "note.md");
 	writeFileSync(file, "");
 	const s = createSession("12121212-restore");
 	const first = await load(realExtension, s, dir);
-	await command(first.ext, "md-log", file, makeCtx(s, dir));
+	await open(first.ext, file, makeCtx(s, dir));
 	// a restarted pi: fresh instance, same session entries
 	const second = await load(realExtension, s, dir);
 	const ctx = makeCtx(s, dir);
 	globalThis.__piLearn.linkedNote = null;
 	await emit(second.ext, "session_start", { type: "session_start", reason: "startup" }, ctx);
-	assert.equal(ctx.ui.status.get("md-log"), "🗒 note.md");
+	assert.equal(ctx.ui.status.get("learn-obsidian"), "🗒 note.md");
 	assert.equal(globalThis.__piLearn.linkedNote, file);
 	await emit(second.ext, "message_end", { type: "message_end", message: { role: "user", content: "after restart" } }, ctx);
 	assert.ok(read(file).endsWith("> [!quote] YOU\n\nafter restart\n"));
-	await command(second.ext, "md-unlog", "", ctx);
-	assert.equal(ctx.ui.status.get("md-log"), undefined);
+	await command(second.ext, "learn", "close", ctx);
+	assert.equal(ctx.ui.status.get("learn-obsidian"), undefined);
 	assert.equal(globalThis.__piLearn.linkedNote, null);
 	await emit(second.ext, "message_end", { type: "message_end", message: { role: "user", content: "not logged" } }, ctx);
 	assert.ok(!read(file).includes("not logged"));
-	assert.deepEqual(s.entries.filter((e) => e.customType === "md-log").at(-1).data, { file: null });
+	assert.deepEqual(s.entries.filter((e) => e.customType === "learn-link").at(-1).data, { file: null });
 });
 
 // ─── /learn ──────────────────────────────────────────────────────────────────
@@ -371,18 +387,19 @@ test("/learn creates the note + index, links it and starts teaching", async () =
 	assert.equal(guide?.message.customType, "pi-learn-help");
 	assert.equal(guide?.message.display, true);
 	assert.equal(guide?.options?.triggerTurn, false, "help must not interrupt a running model turn");
-	for (const usage of ["/learn <topic>", "/learn-resume", "/md-log", "/md-unlog", "/skill:teach", "/skill:visualize", "search_commons_images", "Learn Index.md", notes]) {
+	for (const usage of ["/learn <topic>", "/learn new", "/learn open", "/learn search", "/learn resume", "/learn status", "/learn close", "/learn obsidian", "/skill:teach", "/skill:visualize", "search_commons_images", "Learn Index.md", notes]) {
 		assert.ok(guide.message.content.includes(usage), `guide lacks ${usage}`);
 	}
 	assert.equal(calls.sendUserMessage.length, 0, "help never starts the model");
-	assert.equal(readdirSync(notes).length, 0, "help never creates a note");
-	assert.deepEqual(ext.commands.get("learn").getArgumentCompletions(""), [{ value: "help", label: "help", description: "Show pi-learn commands and how to use them" }]);
+	assert.equal(readdirSync(notes).filter((name) => name.endsWith(".md")).length, 0, "help never creates a note");
+	const actions = ext.commands.get("learn").getArgumentCompletions("");
+	assert.deepEqual(actions.map((a) => a.label), ["new", "open", "search", "resume", "status", "close", "obsidian", "help"]);
 	await command(ext, "learn", "help", ctx);
 	assert.equal(calls.sendMessage.at(-1).message.customType, "pi-learn-help");
 	const busy = makeCtx(s, root, { idle: false });
 	await command(ext, "learn", "Anything", busy);
 	assert.equal(busy.ui.notices.at(-1).level, "warning");
-	assert.equal(readdirSync(notes).length, 0);
+	assert.equal(readdirSync(notes).filter((name) => name.endsWith(".md")).length, 0);
 
 	await command(ext, "learn", "How does TCP/IP work?", ctx);
 	const file = join(notes, "How does TCP IP work.md");
@@ -394,7 +411,7 @@ test("/learn creates the note + index, links it and starts teaching", async () =
 	assert.deepEqual(fm.cssclasses, ["pi-learn"]);
 	assert.equal(splitFrontmatter(text).body, `## Session 1 (${today()})\n${marker(s.sessionId)}\n`);
 	assert.deepEqual(calls.sendUserMessage.map((c) => c.content), ["Teach me: How does TCP/IP work?"]);
-	assert.equal(ctx.ui.status.get("md-log"), "🗒 How does TCP IP work.md");
+	assert.equal(ctx.ui.status.get("learn-obsidian"), "🗒 How does TCP IP work.md");
 	const index = read(join(notes, "Learn Index.md"));
 	assert.match(index, /\| \[\[How does TCP IP work\]\] \| How does TCP\/IP work\? \| active \| 1 \| \d{4}-\d{2}-\d{2} \d{2}:\d{2} \|/);
 	assert.ok(!index.includes("[[Learn Index]]"));
@@ -528,8 +545,8 @@ test("/learn-resume without args picks the latest note and continues in a fresh 
 	const text = read(newer);
 	assert.ok(text.includes(`## Session 2 (${today()})\n${marker(freshSession.sessionId)}\nContinues [[#Session 1 (2026-09-20)]].\n`));
 	assert.ok(!text.includes(oldSession.sessionId), "the old session is not written into the note");
-	assert.equal(freshSession.entries.filter((e) => e.customType === "md-log").length, 1, "link persisted once in the new session");
-	assert.equal(freshCtx.ui.status.get("md-log"), "🗒 Binary search trees.md");
+	assert.equal(freshSession.entries.filter((e) => e.customType === "learn-link").length, 1, "link persisted once in the new session");
+	assert.equal(freshCtx.ui.status.get("learn-obsidian"), "🗒 Binary search trees.md");
 	// the new session keeps logging into the note
 	await emit(second.ext, "message_end", { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "Welcome back." }] } }, freshCtx);
 	assert.ok(read(newer).endsWith("> [!abstract] PI\n\nWelcome back.\n"));
@@ -539,7 +556,7 @@ test("/learn-resume without args picks the latest note and continues in a fresh 
 	assert.ok(rows[0].startsWith("| [[Binary search trees]]"), "newest first");
 });
 
-test("/learn-resume missing-note reports an error and never prompts", async () => {
+test("/learn-resume missing-note warns and never prompts", async () => {
 	const notes = newDir("resume-missing");
 	process.env.PI_LEARN_NOTES_DIR = notes;
 	const s = createSession("b2b2b2b2-missing");
@@ -547,14 +564,67 @@ test("/learn-resume missing-note reports an error and never prompts", async () =
 	const ctx = makeCtx(s, root);
 	await command(ext, "learn-resume", "missing-note", ctx);
 	assert.equal(ctx.ui.notices.length, 1);
-	assert.equal(ctx.ui.notices[0].level, "error");
-	assert.match(ctx.ui.notices[0].message, /missing-note/);
+	assert.equal(ctx.ui.notices[0].level, "warning");
+	assert.match(ctx.ui.notices[0].message, /No Markdown notes/);
 	await command(ext, "learn-resume", "", ctx); // empty notes dir
-	assert.equal(ctx.ui.notices[1].level, "error");
+	assert.equal(ctx.ui.notices[1].level, "warning");
 	assert.match(ctx.ui.notices[1].message, /No learning notes/);
 	assert.equal(ctx.ui.prompts, 0);
 	assert.equal(calls.sendMessage.length, 0);
-	assert.deepEqual(readdirSync(notes), []);
+	assert.deepEqual(readdirSync(notes), [".obsidian"]);
+});
+
+test("/learn search browses plain Markdown notes with a picker and title completions", async () => {
+	const notes = newDir("search");
+	process.env.PI_LEARN_NOTES_DIR = notes;
+	const nested = join(notes, "Hardware");
+	mkdirSync(nested);
+	const packaging = join(nested, "Silicon Packaging.md");
+	const other = join(nested, "Package Tools.md");
+	writeFileSync(packaging, "# Package anatomy\n\nLearner note.\n");
+	writeFileSync(other, "# Package tools\n");
+	const s = createSession("d4d4d4d4-search");
+	s.message({ role: "user", content: "Private conversation before searching" });
+	const { ext } = await load(realExtension, s, notes);
+	const ctx = makeCtx(s, notes);
+	const choices = [];
+	ctx.ui.select = async (_title, options) => {
+		choices.push(options);
+		return "Hardware/Silicon Packaging.md";
+	};
+	assert.equal(ext.commands.has("md-log"), false);
+	assert.equal(ext.commands.has("md-unlog"), false);
+	const completions = ext.commands.get("learn").getArgumentCompletions("search silicon");
+	assert.equal(completions.length, 1);
+	assert.equal(completions[0].value, 'search "Hardware/Silicon Packaging.md"');
+	await command(ext, "learn", "search", ctx);
+	assert.deepEqual(new Set(choices[0]), new Set(["Hardware/Package Tools.md", "Hardware/Silicon Packaging.md"]));
+	assert.equal(globalThis.__piLearn.linkedNote, packaging);
+	assert.equal(s.entries.filter((e) => e.customType === "learn-link").at(-1).data.file, packaging);
+	assert.ok(read(packaging).includes("Learner note.\n"), "the existing note is preserved");
+	assert.ok(read(packaging).includes(marker(s.sessionId)), "session is linked to the note");
+	assert.ok(!read(packaging).includes("Private conversation before searching"), "prior Pi conversation is not copied into a newly opened note");
+});
+
+test("old md-log session entries restore into the new Obsidian link and /learn close supersedes them", async () => {
+	const dir = newDir("legacy-link");
+	const note = join(dir, "Legacy.md");
+	writeFileSync(note, "# Learner notes\n");
+	const s = createSession("e5e5e5e5-legacy");
+	s.custom("md-log", { file: note });
+	const { ext } = await load(realExtension, s, dir);
+	const ctx = makeCtx(s, dir);
+	await emit(ext, "session_start", { type: "session_start", reason: "startup" }, ctx);
+	assert.equal(ctx.ui.status.get("learn-obsidian"), "🗒 Legacy.md");
+	await emit(ext, "message_end", { type: "message_end", message: { role: "user", content: "A new observation" } }, ctx);
+	assert.ok(read(note).includes("A new observation"));
+	await command(ext, "learn", "close", ctx);
+	assert.equal(s.entries.at(-1).customType, "learn-link");
+	assert.equal(s.entries.at(-1).data.file, null);
+	const restarted = await load(realExtension, s, dir);
+	const restartCtx = makeCtx(s, dir);
+	await emit(restarted.ext, "session_start", { type: "session_start", reason: "startup" }, restartCtx);
+	assert.equal(globalThis.__piLearn.linkedNote, null);
 });
 
 test("quiz question never leaks the correct answer or explanation before the answer", async () => {
@@ -564,7 +634,7 @@ test("quiz question never leaks the correct answer or explanation before the ans
 	const s = createSession("c3c3c3c3-leak");
 	const { ext } = await load(realExtension, s, dir);
 	const ctx = makeCtx(s, dir);
-	await command(ext, "md-log", file, ctx);
+	await open(ext, file, ctx);
 	const [, update] = liveLessonEvents().find(([n]) => n === "tool_execution_update");
 	await emit(ext, "tool_execution_update", update, ctx);
 	const text = read(file);

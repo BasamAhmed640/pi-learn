@@ -2,8 +2,8 @@
 
 A fork of Amos Blomqvist's [learn](https://github.com/amosblomqvist/learn): his AI learning system for
 [pi](https://github.com/earendil-works/pi), shown in [How I Use AI to Learn Things](https://www.youtube.com/watch?v=kzcI5F4tGiU).
-His teaching method is unchanged. It still uses the `teach` skill, the probe → plan → teach process, the
-motivate → establish → connect → quiz-check loop, graded `quiz` questions, and the live Obsidian log.
+His teaching method remains: the `teach` skill, the probe → plan → teach process, the
+motivate → establish → connect → quiz-check loop, and graded `quiz` questions.
 This fork adds:
 
 - **Systems get a Mermaid diagram by default.** When the concept being taught is a *system* (interacting parts whose
@@ -16,16 +16,17 @@ This fork adds:
   quiz back if the explanation it tests describes a system but has no diagram yet. A bounded quality check rejects
   disconnected mapping pictures and asks a model to flag definite causal errors before the next quiz. Reviewer
   failures fail open; see the manual findings in [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md).
-- **Obsidian sessions you can come back to.** `/learn <topic>` creates and links a note. Each pi session gets its own
-  section in the note. Relinking never destroys content. A `Learn Index` note links every topic, and
-  `/learn-resume` continues a lesson from the note alone.
+- **Obsidian notes you can find and continue.** `/learn new <topic>` creates and links a note. `/learn open` and
+  `/learn search` find existing notes in Pi with completion or a picker. `/learn resume` starts a fresh Pi session
+  using the actual note contents. Each Pi session gets its own section, and `Learn Index.md` links the topics.
 - **Centered presentation.** A scoped CSS snippet centers callouts, display equations and Mermaid diagrams in
   reading view and live preview.
-- **Real reference images when they help.** In a linked Obsidian lesson about a physical or visual topic, the tutor
-  searches Wikimedia Commons at the first relevant explanation and can retry once with a broader term. It inspects
-  small previews and imports only a relevant raster image into the vault with source, artist and license attribution.
-  Imported images are saved under the vault's `pi-learn-images/` folder and embedded locally, so the note keeps working offline.
-  Systems still get Mermaid diagrams.
+- **Real reference images when they teach something visible.** During planning, the tutor identifies lesson points
+  where a specific real view would help the learner recognize or understand a concept. Before each search it states
+  what the learner needs to see and why. It previews Wikimedia Commons results and imports an image only when the
+  subject is clear and accurate and the creator and license are usable. The note places the local image beside a
+  sentence explaining what to notice and source attribution. The image remains available offline; systems still
+  get Mermaid diagrams.
 
 ## Install
 
@@ -44,7 +45,9 @@ To use `/learn` from **any** Pi directory, install it personally as well:
 pi install git:github.com/BasamAhmed640/pi-learn
 ```
 
-Set the destination for lessons in `<agent-dir>/pi-learn.json` (`<agent-dir>` defaults to `~/.pi/agent`):
+In Pi, run `/learn obsidian "<your vault>"` to select the vault's `Learn` folder. To select an existing folder
+inside the vault, pass that folder instead. This saves the destination in `<agent-dir>/pi-learn.json`
+(`<agent-dir>` defaults to `~/.pi/agent`):
 
 ```json
 { "notesDir": "C:\\path\\to\\your\\ObsidianVault\\Learn" }
@@ -69,21 +72,28 @@ repo as the project's `.pi` directory.
 
 | Command | What it does |
 |---|---|
-| `/learn` or `/learn help` | Shows a persistent guide to the commands, skills, tools and note location. |
-| `/learn <topic>` | Creates `<topic>.md` in the configured notes folder, links it, and starts the lesson. If the note exists, it resumes instead. |
-| `/learn-resume [note]` | Continues a lesson from its note: topic, plan, diagrams already drawn, quiz history, last exchanges. With no argument it picks the most recently studied note. |
-| `/md-log <file>` / `/md-unlog` | Amos's original commands. Link an existing note (non-destructive now) or stop logging. |
+| `/learn` or `/learn help` | Shows the commands, skills, tools and current note location. |
+| `/learn new <topic>` | Creates and links `<topic>.md`, then starts teaching. `/learn <topic>` is a shortcut. An existing topic note is resumed. |
+| `/learn open [note]` | Finds an existing Markdown note and links it to this Pi session. With no name, opens a picker. |
+| `/learn search [words]` | Searches note titles and topics in the Pi terminal, then lets you select a match. |
+| `/learn resume [note]` | Starts a fresh Pi session using the note's contents, including any saved plan, diagrams, quizzes and recent exchanges. With no name, opens a picker. |
+| `/learn status` / `/learn close` | Shows the current link or unlinks the note. |
+| `/learn obsidian [folder]` | Shows or sets the Obsidian notes folder. A vault root selects its `Learn` folder. |
 
-Notes get properties (`learn-topic`, `learn-status`, `learn-sessions`, `cssclasses: pi-learn`, …). Each pi session
-writes under `## Session N (date)`, and resumed sessions link back to the previous one. Questions and answers appear
-as callouts.
+Type `/learn open ` or `/learn resume ` and use Pi's completion list to narrow by note title. Search also includes
+ordinary Markdown notes in the selected vault folder. `/learn-resume` remains a shortcut; with no name, it chooses
+the most recently studied learning note.
+
+Learning notes get properties (`learn-topic`, `learn-status`, `learn-sessions`, `cssclasses: pi-learn`, …). Each Pi
+session writes under `## Session N (date)`; resumed sessions link back to the previous one. Questions and answers
+appear as callouts. Existing note content remains in place.
 
 ## What's in it
 
 - `skills/teach/`: the philosophy and the process, including the system → Mermaid rule
 - `skills/visualize/`: maker-rendered PNG visuals (spatial/geometric), for when a tmux subagent runner is available
 - `extensions/quiz.ts`, `extensions/ask-user-question.ts`: graded and ungraded questions (TUI popups)
-- `extensions/md-log.ts`: the Obsidian log, plus `/learn`, `/learn-resume`, the index and styling install
+- `extensions/obsidian-link.ts`: searchable Obsidian linking and note-based resume, the index and styling install
 - `extensions/system-diagrams.ts`: policy injection, Mermaid validation and repair, and the semantic system check
 - `extensions/commons-images.ts`: Commons search, preview and bounded import for local Obsidian image embeds
 - `extensions/lib/`: pure helpers (Mermaid parsing/validation, note format, policy text, Obsidian styling)
@@ -104,5 +114,5 @@ for the results.
 
 ## Credit
 
-The teaching system, the quiz and question tools, md-log and the maker agents are Amos Blomqvist's work
+The teaching system, quiz and question tools, original note logging, and maker agents are Amos Blomqvist's work
 ([amosblomqvist/learn](https://github.com/amosblomqvist/learn)). This fork builds on them.

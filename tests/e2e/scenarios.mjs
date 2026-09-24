@@ -88,7 +88,7 @@ export const SCENARIOS = [
 		p: 0.6,
 		// phase A: the PID session, cut short; phase B: a fresh session resumes the note.
 		phaseA: { maxUserTurns: 3 },
-		phaseB: { maxUserTurns: 3 }, // /learn-resume + 2 more turns
+		phaseB: { maxUserTurns: 3 }, // /learn resume + 2 more turns
 	},
 ];
 

@@ -1,8 +1,8 @@
 {
   "name": "pi-learn",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Amos Blomqvist's AI learning system for pi, extended with default Mermaid diagrams for systems and Obsidian session linking and resume.",
+  "description": "Amos Blomqvist's AI learning system for Pi, with system diagrams, searchable Obsidian notes, resume, and purposeful reference images.",
   "type": "module",
   "keywords": [
     "pi-package"
@@ -10,7 +10,7 @@
   "pi": {
     "extensions": [
       "./extensions/system-diagrams.ts",
-      "./extensions/md-log.ts",
+      "./extensions/obsidian-link.ts",
       "./extensions/quiz.ts",
       "./extensions/ask-user-question.ts",
       "./extensions/commons-images.ts",

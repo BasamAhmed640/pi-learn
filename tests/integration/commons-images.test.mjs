@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -25,8 +25,12 @@ test("linked Obsidian lessons get a proactive but selective image policy", async
 	assert.equal(await run([]), undefined, "ordinary Pi work is not given a lesson image rule");
 	const link = { type: "custom", customType: "md-log", data: { file: note } };
 	const policy = await run([link]);
-	for (const phrase of ["first relevant explanation", "search_commons_images", "broader physical-object term", "import_commons_image", "attribution", "Mermaid"]) {
+	for (const phrase of ["Phase 2", "dependency-map nodes", "Phase 3", "exact visible feature", "image quota", "first relevant explanation", "search_commons_images", "broader physical-object term", "import_commons_image", "needed_view", "learning_goal", "what_to_notice", "alt_text", "attribution", "Mermaid"]) {
 		assert.ok(policy.includes(phrase), `missing image instruction: ${phrase}`);
+	}
+	const teachSkill = readFileSync(join(repoRoot, "skills", "teach", "SKILL.md"), "utf8");
+	for (const phrase of ["Plan visual learning moments", "needed view", "exact observation", "Do not search or import during planning", "planned visual learning moment", "beside the explanation"]) {
+		assert.ok(teachSkill.includes(phrase), `missing image planning instruction: ${phrase}`);
 	}
 	assert.equal(await run([link, { type: "custom", customType: "md-log", data: { file: null } }]), undefined, "unlinked sessions receive no image rule");
 });
@@ -37,7 +41,9 @@ test("pi loads both Commons tools; search previews before import and returns a v
 	const cwd = join(root, "Learn");
 	mkdirSync(cwd);
 	const originalFetch = globalThis.fetch;
+	let fetches = 0;
 	globalThis.fetch = async (input) => {
+		fetches++;
 		const url = new URL(String(input));
 		if (url.hostname === "commons.wikimedia.org") {
 			const info = {
@@ -74,12 +80,32 @@ test("pi loads both Commons tools; search previews before import and returns a v
 		const ctx = () => runner.createContext();
 		const rejected = await importer.execute("bad", { candidate_id: "42" }, undefined, () => {}, ctx());
 		assert.equal(rejected.details.ok, false);
-		const found = await search.execute("search", { query: "lesson image" }, undefined, () => {}, ctx());
+		const noPurpose = await search.execute("no-purpose", { query: "lesson image", needed_view: "an image", learning_goal: "package connections" }, undefined, () => {}, ctx());
+		assert.equal(noPurpose.details.count, 0);
+		assert.match(noPurpose.content[0].text, /needed_view/);
+		const noGoal = await search.execute("no-goal", { query: "BGA underside", needed_view: "the solder ball grid beneath a BGA package" }, undefined, () => {}, ctx());
+		assert.equal(noGoal.details.count, 0);
+		assert.match(noGoal.content[0].text, /learning_goal/);
+		assert.equal(fetches, 0, "a generic purpose must not trigger a search");
+		const found = await search.execute("search", {
+			query: "BGA package underside", needed_view: "the solder ball grid beneath a BGA package", learning_goal: "how the package connects to a circuit board",
+		}, undefined, () => {}, ctx());
 		assert.equal(found.details.count, 1);
 		assert.equal(found.content.filter((c) => c.type === "image").length, 1);
-		const imported = await importer.execute("import", { candidate_id: "42" }, undefined, () => {}, ctx());
+		const beforeImport = fetches;
+		const noObservation = await importer.execute("no-observation", { candidate_id: "42", what_to_notice: "an image", alt_text: "a BGA package with solder balls" }, undefined, () => {}, ctx());
+		assert.equal(noObservation.details.ok, false);
+		const noAlt = await importer.execute("no-alt", { candidate_id: "42", what_to_notice: "Notice the regular grid of solder balls on the underside." }, undefined, () => {}, ctx());
+		assert.equal(noAlt.details.ok, false);
+		assert.match(noAlt.content[0].text, /alt_text/);
+		assert.equal(fetches, beforeImport, "an import without an observation must not fetch an image");
+		assert.equal(existsSync(join(root, "pi-learn-images")), false, "an import without an observation must not create a vault asset");
+		const imported = await importer.execute("import", {
+			candidate_id: "42", what_to_notice: "Notice the regular grid of solder balls on the package underside.", alt_text: "Underside of a BGA package showing rows of solder balls",
+		}, undefined, () => {}, ctx());
 		assert.equal(imported.details.ok, true);
-		assert.match(imported.details.embed, /!\[\[pi-learn-images\/commons-42-/);
+		assert.match(imported.details.embed, /!\[Underside of a BGA package showing rows of solder balls\]\(<\.\.\/pi-learn-images\/commons-42-/);
+		assert.match(imported.details.block, /Notice the regular grid of solder balls/);
 		assert.match(imported.content[0].text, /CC BY 4\.0/);
 		assert.ok(existsSync(imported.details.path));
 	} finally {

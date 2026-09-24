@@ -125,7 +125,9 @@ function candidateOf(page: any): CommonsCandidate | null {
 	const license = cleanText(meta.LicenseShortName?.value, 100);
 	if (!/^(?:CC0|CC BY(?:-SA)?|Public domain|PD)(?:\s|$)/i.test(license)) return null;
 	const artist = cleanText(meta.Artist?.value, 300);
-	if (!artist && /^CC BY/i.test(license)) return null;
+	if (!artist || /^(?:unknown|anonymous|not (?:stated|provided|known)|n\/a|none|\?)$/i.test(artist)) return null;
+	const licenseUrl = safeHttpsUrl(meta.LicenseUrl?.value);
+	if (/^CC/i.test(license) && !licenseUrl) return null;
 	const previewUrl = safeHttpsUrl(info.thumburl || info.url);
 	if (!previewUrl || !IMAGE_HOSTS.has(new URL(previewUrl).hostname)) return null;
 	const encodedTitle = encodeURIComponent(page.title.slice(5).replace(/ /g, "_"))
@@ -134,8 +136,8 @@ function candidateOf(page: any): CommonsCandidate | null {
 	return {
 		id: String(page.pageid), title: page.title, pageId: page.pageid, sha1: info.sha1.toLowerCase(),
 		mime: info.mime, previewUrl, sourceUrl,
-		artist: artist || "Contributor listed on Commons",
-		license, licenseUrl: safeHttpsUrl(meta.LicenseUrl?.value),
+		artist,
+		license, licenseUrl,
 	};
 }
 
@@ -217,8 +219,12 @@ function attribution(candidate: CommonsCandidate): string {
 
 export async function importCommonsImage(
 	candidate: CommonsCandidate,
-	options: { cwd: string; linkedNote?: string | null; fetchImpl?: Fetcher },
+	options: { cwd: string; linkedNote?: string | null; altText: string; fetchImpl?: Fetcher },
 ): Promise<ImportedCommonsImage> {
+	const altText = typeof options.altText === "string" ? options.altText.trim() : "";
+	if (altText.length < 8 || altText.length > 240 || /[\x00-\x1f\x7f]/.test(altText)) {
+		fail("Describe what the image conveys in alt text before importing it.");
+	}
 	const fetchImpl = options.fetchImpl ?? fetch;
 	const base = options.linkedNote && existsSync(options.linkedNote) ? dirname(resolve(options.linkedNote)) : resolve(options.cwd);
 	const vaultRoot = findVaultRoot(base);
@@ -257,5 +263,8 @@ export async function importCommonsImage(
 		if (!existing.equals(bytes)) fail("The existing vault image differs from the selected Commons file.");
 		reused = true;
 	}
-	return { path: dest, embed: `![[pi-learn-images/${filename}|500]]`, attribution: attribution(fresh), bytes: bytes.length, reused };
+	// A Markdown image gives screen readers a description; the path is relative to the linked note.
+	const noteDir = options.linkedNote && existsSync(options.linkedNote) ? dirname(resolve(options.linkedNote)) : resolve(options.cwd);
+	const imagePath = relative(noteDir, dest).split(sep).join("/");
+	return { path: dest, embed: `![${markdownText(altText)}](<${imagePath}>)`, attribution: attribution(fresh), bytes: bytes.length, reused };
 }

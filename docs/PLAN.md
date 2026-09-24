@@ -56,3 +56,20 @@ as-is except where the goals below require a change.
 | AC11 | Unresolved wikilinks/embeds in Obsidian | 0 |
 | AC12 | Callouts, display math and Mermaid diagrams centered in Obsidian (±2 px) | 100% |
 | AC13 | Package loads in the vault project with 0 errors, using pi-learn's `quiz`/`ask_user_question` | yes |
+
+## 2026-09-24 update: searchable Obsidian notes and image planning
+
+This update replaces the old note-logging command flow while keeping existing learning notes and their session
+sections readable. The concrete goals and checks are:
+
+| Goal | Change | Acceptance check |
+| --- | --- | --- |
+| L1: Find notes in Pi | One `/learn` command exposes `new`, `open`, `search`, `resume`, `status`, `close`, `obsidian` and `help`; note picker and filtered completion work from Pi. | Open and search find both learning notes and ordinary Markdown notes by title or topic, with clear handling of multiple matches. |
+| L2: Continue from Obsidian | Resume uses the linked note's actual contents in a fresh Pi session and preserves earlier note text and session sections. | A fresh session continues an existing lesson without repeating the goal probe; relinking keeps prior content. |
+| L3: Retire the old command flow | The package registers no `/md-log` or `/md-unlog` commands; legacy session metadata remains readable. | Loader command list contains `/learn` and no old note-logging commands; existing notes still open. |
+| L4: Plan visuals with purpose | In Phase 2, identify concept nodes that need a real view and the observation that view should support. Before search, state the needed view and learning goal. | Search rejects generic rationale; lesson plan names useful visual moments for a visually grounded topic. |
+| L5: Import only useful images | Inspect Commons preview for the intended subject, accuracy, creator and license; import with a sentence on what to notice and meaningful alt text. | Import requires a previously previewed candidate, `what_to_notice`, and `alt_text`; the note has a local embed and attribution. Unusable candidates leave the lesson without an image. |
+| L6: Ship both copies | Push the finished package to GitHub, update personal and vault installations, and check Pi's real loader. | Installed commit matches GitHub; extensions and tools load without errors. |
+
+The end-to-end harness now starts through `/learn new` and resumes through `/learn resume`, so a missing command
+is a failure rather than a silent switch to the retired flow.

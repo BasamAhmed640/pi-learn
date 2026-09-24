@@ -143,7 +143,7 @@ function checkStructure(md, { createdByLearn = true } = {}) {
 	const problems = [];
 	if (!fm) problems.push("no frontmatter");
 	if (missingKeys.length) problems.push(`missing frontmatter keys: ${missingKeys.join(", ")}`);
-	// tags: [learn] is only promised on notes /learn creates (a /md-log-linked note keeps its own tags).
+	// tags: [learn] is only promised on notes /learn new creates (an opened note keeps its own tags).
 	if (fm && createdByLearn && !tags.includes("learn")) problems.push("tags lacks 'learn'");
 	if (sections.length === 0) problems.push("no '## Session N (date)' sections");
 	for (const s of sections) {

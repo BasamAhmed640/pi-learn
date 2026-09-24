@@ -33,6 +33,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync } from "node:fs";
 import { describeMermaid, extractMermaidBlocks, validateMermaid } from "./lib/mermaid.ts";
 import { findMermaidFences } from "./lib/learn-notes.ts";
+import { linkedNoteFromEntries } from "./lib/learn-link-state.ts";
 import {
 	buildQualityReviewInput,
 	diagramHash,
@@ -143,7 +144,7 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 
 	const g = globalThis as any;
 	g.__piLearnSystemAudit = g.__piLearnSystemAudit || [];
-	// md-log reads these promises before writing assistant text to the Obsidian note.
+	// The Obsidian link reads these promises before writing assistant text to the note.
 	// The registry is reset for each session and keyed by exact assistant text/source.
 	let shared: {
 		sessionId: string;
@@ -163,11 +164,7 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 	}
 
 	function linkedNote(ctx: any): string | null {
-		let file: string | null = null;
-		for (const entry of ctx.sessionManager?.getEntries?.() ?? []) {
-			if (entry?.type === "custom" && entry.customType === "md-log") file = entry.data?.file ?? null;
-		}
-		return file;
+		return linkedNoteFromEntries(ctx.sessionManager?.getEntries?.() ?? []);
 	}
 
 	function rebuildDrawn(ctx: any): void {

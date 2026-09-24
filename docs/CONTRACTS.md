@@ -44,7 +44,7 @@ flowchart LR
 - `%% system: <name> — zoom: <subsystem>` — lower-level diagram of one part
 - `%% dependency-map` — the Phase-2 teaching plan DAG (not a concept diagram)
 
-## 2. `extensions/md-log.ts` + `extensions/lib/learn-notes.ts` — Obsidian layer (WP-B)
+## 2. `extensions/obsidian-link.ts` + `extensions/lib/learn-notes.ts` — Obsidian layer
 
 - Baseline callout formats stay byte-identical (`> [!quote] YOU`, `> [!abstract] PI`, `> [!question] Quiz|Question`,
   success/failure/question/example/warning answer callouts).
@@ -57,8 +57,15 @@ flowchart LR
 - Assistant text is validated with `validateMermaid` before it is written; an `invalid` block is replaced in the
   note by a `> [!warning]` callout with the original source hidden in a `%% ... %%` comment.
 - QA `tool_result` events with `isError: true` or without `details.status` are ignored (blocked calls).
-- Commands: `/learn <topic>`, `/learn-resume [note]`, `/md-log <file>`, `/md-unlog`.
-- Notes directory: `process.env.PI_LEARN_NOTES_DIR` or `ctx.cwd`. Index note: `<notesDir>/Learn Index.md`.
+- Commands: `/learn new <topic>` (or `/learn <topic>`), `/learn open [note]`, `/learn search [words]`,
+  `/learn resume [note]`, `/learn status`, `/learn close`, `/learn obsidian [folder]`, `/learn help`.
+  `/learn-resume [note]` remains a shortcut for older users. No separate note-logging commands are registered.
+- Open, search and resume accept a picker with no argument. Argument completion filters note titles and paths;
+  search includes ordinary Markdown notes in the selected folder. Resume builds context from note contents.
+- Notes directory: `PI_LEARN_NOTES_DIR`, else `<agent-dir>/pi-learn.json` `notesDir`, else `ctx.cwd`.
+  `/learn obsidian <vault>` saves `<vault>/Learn`. Index note: `<notesDir>/Learn Index.md`.
+- New session metadata uses the `learn-link` custom entry. Legacy `md-log` entries are read so an existing Pi
+  session can restore its linked note; new commands do not write them.
 - Shared state for other extensions: `globalThis.__piLearn = { linkedNote: string | null }`.
 
 ## 3. `extensions/system-diagrams.ts` — system detection and Mermaid enforcement (lead)
@@ -75,3 +82,13 @@ flowchart LR
 - `npm test` → `tests/run.mjs` runs `tests/unit/*.test.mjs` and `tests/integration/*.test.mjs` (node:test).
 - `tests/e2e/` — live-model sessions with a simulated learner (WP-E). Run explicitly.
 - `tests/obsidian/` — real-Obsidian render verification (WP-G). Run explicitly.
+
+## 5. `extensions/commons-images.ts` — visual reference path
+
+- The teaching plan identifies nodes that could benefit from an identifiable real view and states what to notice.
+- `search_commons_images` requires a short concrete `query`, `needed_view`, and `learning_goal`.
+  The last two complete: “The learner needs to see [needed_view] to understand or recognize [learning_goal].”
+- The tutor inspects returned Commons previews. `import_commons_image` accepts only a candidate ID from a
+  preview plus `what_to_notice` and descriptive `alt_text`. Images are optional when none fit.
+- Imported files live under the vault's `pi-learn-images/` folder. The local Markdown embed, observation
+  sentence, and creator/source/license attribution stay together in the linked note.

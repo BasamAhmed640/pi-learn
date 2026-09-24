@@ -1,7 +1,7 @@
 // Exercise the real extension loader with scripted nested-model replies. These
-// tests cover the diagram-quality gate where it meets quiz calls and md-log.
+// tests cover the diagram-quality gate where it meets quiz calls and Obsidian notes.
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { after, test } from "node:test";
@@ -12,7 +12,7 @@ import { importPiLoader, repoRoot } from "../helpers/pi.mjs";
 
 const { loadExtensions, createExtensionRuntime } = await importPiLoader();
 const systemPath = resolve(repoRoot, "extensions", "system-diagrams.ts");
-const mdLogPath = resolve(repoRoot, "extensions", "md-log.ts");
+const obsidianLinkPath = resolve(repoRoot, "extensions", "obsidian-link.ts");
 const root = mkdtempSync(join(tmpdir(), "pi-learn-diagram-quality-"));
 after(() => rmSync(root, { recursive: true, force: true }));
 
@@ -56,9 +56,10 @@ function resetGlobals() {
 async function harness({ withNote = false, replies = [], session = createSession(`quality-${Math.random().toString(36).slice(2)}`), reset = true } = {}) {
 	if (reset) resetGlobals();
 	const dir = mkdtempSync(join(root, "case-"));
+	if (withNote) mkdirSync(join(dir, ".obsidian"));
 	const runtime = createExtensionRuntime();
 	runtime.appendEntry = (customType, data) => session.custom(customType, data);
-	const paths = withNote ? [systemPath, mdLogPath] : [systemPath];
+	const paths = withNote ? [systemPath, obsidianLinkPath] : [systemPath];
 	const loaded = await loadExtensions(paths, dir, undefined, runtime);
 	assert.equal(loaded.errors.length, 0, loaded.errors.map((e) => e.error).join("; "));
 	assert.equal(loaded.extensions.length, paths.length);
@@ -108,6 +109,17 @@ async function harness({ withNote = false, replies = [], session = createSession
 	}
 	const quiz = (id) => emit("tool_call", { toolName: "quiz", toolCallId: id, input: {} });
 	return { dir, session, extensions: loaded.extensions, calls, ctx, emit, assistant, quiz };
+}
+
+async function startNewNote(h, topic) {
+	const previous = process.env.PI_LEARN_NOTES_DIR;
+	try {
+		process.env.PI_LEARN_NOTES_DIR = h.dir;
+		await h.extensions[1].commands.get("learn").handler(`new ${topic}`, h.ctx);
+	} finally {
+		if (previous === undefined) delete process.env.PI_LEARN_NOTES_DIR;
+		else process.env.PI_LEARN_NOTES_DIR = previous;
+	}
 }
 
 test("two isolated mapping pairs are rejected without a model review", async () => {
@@ -212,21 +224,20 @@ test("note backfill uses the latest saved quality verdict for an identical diagr
 		session.message({ role: "assistant", content: [{ type: "text", text: goodDiagram }] });
 		const h = await harness({ withNote: true, session });
 		const note = join(h.dir, "latest.md");
-		writeFileSync(note, "");
-		await h.extensions[1].commands.get("md-log").handler(note, h.ctx);
+		await startNewNote(h, "latest");
 		const written = readFileSync(note, "utf8");
 		assert.equal(written.includes(HIDDEN_DIAGRAM_CALLOUT), shouldHide, `latest status: ${statuses.at(-1)}`);
 	}
 });
 
-test("md-log hides a rejected diagram but shows an accepted repair, without a blocked quiz callout", async () => {
+test("Obsidian note hides a rejected diagram but shows an accepted repair, without a blocked quiz callout", async () => {
 	const bad = wrongDiagram(20);
 	const h = await harness({ withNote: true, replies: [issue(bad.line), accepted] });
 	const note = join(h.dir, "lesson.md");
 	writeFileSync(note, "");
-	const command = h.extensions[1].commands.get("md-log");
+	const command = h.extensions[1].commands.get("learn");
 	assert.ok(command);
-	await command.handler(note, h.ctx);
+	await command.handler(`open "${note}"`, h.ctx);
 	await h.emit("session_start", { reason: "startup" });
 	await h.emit("agent_start");
 	await h.assistant(bad.text, ["hidden-quiz"]);
@@ -241,7 +252,7 @@ test("md-log hides a rejected diagram but shows an accepted repair, without a bl
 	assert.ok(!text.includes("> [!question] Quiz"), "blocked quiz did not reach the note");
 });
 
-test("a rejected diagram is still hidden when md-log backfills the session later", async () => {
+test("a rejected diagram is still hidden when a new note backfills the session later", async () => {
 	const bad = wrongDiagram(21);
 	const h = await harness({ withNote: true, replies: [issue(bad.line)] });
 	await h.emit("session_start", { reason: "startup" });
@@ -250,8 +261,7 @@ test("a rejected diagram is still hidden when md-log backfills the session later
 	assert.equal((await h.quiz("later-quiz"))?.block, true);
 	await h.emit("agent_settled");
 	const note = join(h.dir, "later.md");
-	writeFileSync(note, "");
-	await h.extensions[1].commands.get("md-log").handler(note, h.ctx);
+	await startNewNote(h, "later");
 	const text = readFileSync(note, "utf8");
 	assert.ok(text.includes(HIDDEN_DIAGRAM_CALLOUT));
 	assert.ok(text.includes(`%%\n${bad.text.slice(bad.text.indexOf("```mermaid"))}\n%%`));
@@ -262,7 +272,7 @@ test("a fresh session resumes only visible accepted diagrams from the linked not
 	const first = await harness({ withNote: true, replies: [issue(bad.line), accepted] });
 	const note = join(first.dir, "resume.md");
 	writeFileSync(note, "");
-	await first.extensions[1].commands.get("md-log").handler(note, first.ctx);
+	await first.extensions[1].commands.get("learn").handler(`open "${note}"`, first.ctx);
 	await first.emit("session_start", { reason: "startup" });
 	await first.emit("agent_start");
 	await first.assistant(bad.text, ["bad-before-resume"]);
@@ -270,7 +280,7 @@ test("a fresh session resumes only visible accepted diagrams from the linked not
 	await first.assistant(goodDiagram, ["good-before-resume"]);
 	assert.equal(await first.quiz("good-before-resume"), undefined);
 	const fresh = createSession(`fresh-${Math.random().toString(36).slice(2)}`);
-	fresh.custom("md-log", { file: note });
+	fresh.custom("learn-link", { file: note });
 	const classifierReply = JSON.stringify({ teaches: true, concept: "control loop", features: [], verdict: "not", covered: false, reason: "test" });
 	const second = await harness({ session: fresh, replies: [classifierReply] });
 	await second.emit("session_start", { reason: "startup" });

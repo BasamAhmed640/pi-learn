@@ -2,7 +2,7 @@
 //
 //   node tests/e2e/run.mjs --scenario <id|kind|all>[,...] [--parallel 3] [--run-id X]
 //        [--thinking medium] [--model provider/id] [--realistic] [--vault DIR]
-//        [--max-user-turns N] [--timeout-min M] [--no-learn-command] [--no-analyze]
+//        [--max-user-turns N] [--timeout-min M] [--no-analyze]
 //
 // Outputs land in tests/e2e/out/<runId>/: <scenario>.json (trace), <scenario>.md (final note),
 // <scenario>.log (child stdout/stderr), sessions/, report.json + report.md.
@@ -17,7 +17,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const args = parseArgs(process.argv.slice(2));
 if (!args.scenario || args.help) {
 	console.log(
-		"usage: node tests/e2e/run.mjs --scenario <id|kind|all> [--parallel 3] [--run-id X] [--thinking medium] [--model p/id] [--realistic] [--vault DIR] [--max-user-turns N] [--timeout-min M] [--no-learn-command] [--no-analyze]",
+		"usage: node tests/e2e/run.mjs --scenario <id|kind|all> [--parallel 3] [--run-id X] [--thinking medium] [--model p/id] [--realistic] [--vault DIR] [--max-user-turns N] [--timeout-min M] [--no-analyze]",
 	);
 	process.exit(args.help ? 0 : 2);
 }
@@ -32,7 +32,6 @@ for (const k of ["thinking", "model", "vault", "max-user-turns", "max-quiz-check
 	if (args[k] !== undefined && args[k] !== true) passthrough.push(`--${k}`, String(args[k]));
 }
 if (args.realistic) passthrough.push("--realistic");
-if (args["no-learn-command"]) passthrough.push("--no-learn-command");
 
 console.log(`run ${runId}: ${scenarios.length} scenario(s), parallel ${parallel} -> ${relative(process.cwd(), outDir) || outDir}`);
 

@@ -1,10 +1,25 @@
-# Handoff — pi-learn (2026-09-23)
+# Handoff — pi-learn
 
 **Repo:** https://github.com/BasamAhmed640/pi-learn (fork of amosblomqvist/learn). The working copy is
-`C:\Users\basam\Documents\pi-learn` on branch `feat/system-diagrams`; `main` was fast-forwarded to it.
+`C:\Users\basam\Documents\pi-learn` on branch `feat/system-diagrams`.
 Goals and acceptance criteria: [PLAN.md](PLAN.md). Interfaces: [CONTRACTS.md](CONTRACTS.md).
 
-## Done (verified)
+## 2026-09-24 update in progress
+
+- The local code replaces the `/md-log` and `/md-unlog` command flow with `/learn new`, `/learn open`,
+  `/learn search`, `/learn resume`, `/learn status`, `/learn close`, and `/learn obsidian`. Bare `/learn`
+  displays the guide. Pi's completion list and a picker help find notes, including ordinary Markdown notes.
+- A fresh resume still reconstructs context from the note, preserving its previous sections. Older session
+  metadata is read for compatibility; new links use `learn-link` entries.
+- The teaching plan identifies specific lesson points where a real image can help. Search requires a concrete
+  view and learning goal. Import requires a previewed Commons candidate, a sentence on what to notice, and
+  descriptive alt text; the local image is placed with attribution beside the explanation.
+- Verification, GitHub push and personal/vault package updates for this update are pending. Record the final
+  test result and commit here after installation.
+
+## Prior release (2026-09-23)
+
+### Done (verified at that release)
 - `npm test`: **200/200 pass**. It covers unit tests and integration tests using pi 0.87.1's real extension loader.
 - Teach skill: additive **Systems get a Mermaid diagram** rule, covering your definition, the 4-tier decision rule,
   diagram types, overview + zoom-ins, and Mermaid 11.13 syntax rules. Every question goes through
@@ -40,7 +55,7 @@ Goals and acceptance criteria: [PLAN.md](PLAN.md). Interfaces: [CONTRACTS.md](CO
   market run passed the remaining ambiguous topic. A later PID run confirmed that the model-backed system
   classifier and diagram reviewer run in practice. Full details: [ACCEPTANCE.md](ACCEPTANCE.md).
 
-## Accuracy limit and first use
+### Accuracy limit and first use
 - **Diagram factual accuracy remains open (AC7).** The original notes contained causal mistakes despite valid
   Mermaid syntax. The new bounded reviewer caught structural examples in integration tests, but the live PID
   run reviewed only three of five diagrams and left a dimensional error in the note. Its failures do not stop a
@@ -53,7 +68,7 @@ Goals and acceptance criteria: [PLAN.md](PLAN.md). Interfaces: [CONTRACTS.md](CO
 - In `C:\Users\basam\Desktop\Basam's_Vault\Learn`, run `pi`, approve project trust once, then use
   `/learn <topic>`.
 
-## Gotchas
+### Gotchas
 - pi keeps the **first** registered tool of a given name, so `ask_user_question` needs the project-scoped rpiv filter.
 - `ctx.newSession()` invalidates the old ctx. `/learn-resume` hands off through `newSession({ setup })` plus a global
   md-log hook.
