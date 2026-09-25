@@ -20,11 +20,15 @@ export function teachingLines(markdown) {
 	const withoutYaml = markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "");
 	const lines = [];
 	let callout = null;
+	let calloutType = null;
+	let sawQuotedBody = false;
 	let fenced = false;
 	for (const original of withoutYaml.split(/\r?\n/)) {
 		const header = /^>\s*\[!([\w-]+)\][+-]?\s*(.*)$/.exec(original);
 		if (header) {
-			callout = header[1].toLowerCase() === "abstract" && /^PI\b/i.test(header[2]) ? "pi" : "other";
+			calloutType = header[1].toLowerCase();
+			callout = calloutType === "abstract" && /^PI\b/i.test(header[2]) ? "pi" : "other";
+			sawQuotedBody = false;
 			continue;
 		}
 		if (original.trim() === "") {
@@ -33,7 +37,17 @@ export function teachingLines(markdown) {
 			if (callout !== "other") lines.push("");
 			continue;
 		}
-		if (callout === "other") continue;
+		if (/^>/.test(original) && callout === "other") {
+			sawQuotedBody = true;
+			continue;
+		}
+		if (callout === "other") {
+			// A current note's callout body is wholly `>`-quoted, so the next
+			// plain line is teaching prose. Old learner blocks left the learner's
+			// words unquoted; keep excluding those until another callout starts.
+			if (calloutType === "quote" && !sawQuotedBody) continue;
+			callout = null;
+		}
 		const line = original.replace(/^>\s?/, "");
 		if (/^\s*(```|~~~)/.test(line)) {
 			fenced = !fenced;
