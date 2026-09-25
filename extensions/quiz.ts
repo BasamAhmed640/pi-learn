@@ -86,7 +86,7 @@ const OptionSchema = Type.Object({
 	value: Type.Optional(
 		Type.String({ description: "Optional machine-readable value returned for the option. Defaults to the label." }),
 	),
-	description: Type.Optional(Type.String({ description: "Optional extra detail shown below the option." })),
+	description: Type.Optional(Type.String({ description: "Optional neutral clarification shown BEFORE the learner answers. Never put a rationale, hint, or correctness cue here; prefer no per-choice description in a learning quiz." })),
 });
 
 const QuizParams = Type.Object({
@@ -894,6 +894,7 @@ export default function quiz(pi: ExtensionAPI) {
 			"Any answer (right, wrong, or 'I don't know') may carry an optional free-text `note` the user typed in the always-present note field. When present it reflects what they were thinking or unsure about — read it and let it steer your follow-up. It is omitted entirely when empty.",
 			"Treat each wrong answer (distractor) as a diagnostic probe, not just filler: make it a specific, believable mistake the user might actually hold — a common misconception, or an adjacent/easily-confused concept — so that WHICH wrong answer they pick reveals WHICH nuance of their understanding is off. You learn far more from a targeted wrong choice than from a binary right/wrong, and the choice tells you exactly which gap to teach into next (and what the explanation should address).",
 			"Guardrail: every distractor must be unambiguously wrong on the intended reading — tempting, but a real error, not a defensible alternative. Don't drift into trick questions.",
+			"Option descriptions are visible before the answer. Prefer no descriptions in a learning quiz; if essential, use only neutral clarification, never a rationale or hint that gives away the key.",
 			"Anti-guessing hygiene: don't let the correct answer stand out by form (longest, most precise, most hedged, or the only one in the right format). Keep options similar in length, specificity, and phrasing so it can't be picked from shape alone.",
 			"Set multiSelect: true only when more than one option is correct.",
 			"Options are shuffled before display by default, so don't worry about which position you list the correct answer in. Set shuffle: false only when option order is meaningful (ordered values, or an 'All/None of the above' option that must stay last).",
