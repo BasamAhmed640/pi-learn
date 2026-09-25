@@ -248,6 +248,11 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 		});
 	}
 
+	function isLearningPathPlan(text: string): boolean {
+		return /^#{2,6}\s+Learning path\s*$/im.test(text)
+			&& extractMermaidBlocks(text).some((block) => describeMermaid(block.source).tag?.kind === "dependency-map");
+	}
+
 	function priorLessonText(ctx: any): string {
 		try {
 			return (ctx.sessionManager?.getBranch?.() ?? [])
@@ -343,6 +348,9 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 	async function review(ctx: any, rec: MessageRecord, forQuiz: boolean): Promise<{ reason: string; kind: "invalid" | "missing" | "quality"; c?: SystemClassification } | null> {
 		const diagramVerdict = await reviewPendingDiagrams(forQuiz);
 		if (diagramVerdict) return diagramVerdict;
+		// The Phase-2 dependency map presents a proposed path. A false positive
+		// here would force a concept diagram before the learner approves it.
+		if (isLearningPathPlan(rec.text)) return null;
 		if (rec.nudged || nudgesThisRun >= MAX_NUDGES_PER_RUN) return null;
 		if (conceptBlocks(rec.text).length > 0 || proseLength(rec.text) < MIN_PROSE_FOR_AUDIT) return null;
 

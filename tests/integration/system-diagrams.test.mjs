@@ -106,7 +106,7 @@ test("an undiagrammed system explanation holds back its quiz once, then the diag
 	assert.equal(h.calls.length, 2, "the new concept diagram receives one semantic quality review");
 });
 
-test("a lesson-plan dependency map does not satisfy the concept-diagram requirement", async () => {
+test("a dependency map attached to teaching prose does not satisfy the concept-diagram requirement", async () => {
 	const ext = await load();
 	const h = harness(ext, [verdict("clearly")]);
 	await h.emit("agent_start", {});
@@ -114,6 +114,49 @@ test("a lesson-plan dependency map does not satisfy the concept-diagram requirem
 	const result = await h.quiz("plan-only");
 	assert.equal(result?.block, true);
 	assert.equal(h.calls.length, 1, "the missing-diagram classifier sees prose with only a dependency map");
+});
+
+test("a proposed learning path waits for approval without a concept-diagram follow-up, then teaching is still checked", async () => {
+	const ext = await load();
+	const h = harness(ext, [verdict("clearly")]);
+	await h.emit("agent_start", {});
+	const plan = `## Learning path
+
+We will trace the physical path from a chip package to a circuit board, then look at how each solder ball becomes a joint. The diagram maps the proposed order; the detailed concept diagrams belong beside the explanations after you approve this path.
+
+\x60\x60\x60mermaid
+flowchart TD
+%% dependency-map
+  pads["Board pads"] --> align["Balls align"]
+  align --> reflow["Solder melts"]
+  reflow --> joint["Solid joint"]
+\x60\x60\x60
+
+Does this path fit what you wanted?`;
+	await h.assistant(plan);
+	assert.equal(await h.emit("agent_before_settle", { entries: [], continue: false, outcome: "completed", context: {} }), undefined);
+	assert.equal(h.calls.length, 0, "a plan checkpoint never reaches the missing-diagram classifier");
+
+	await h.assistant(plan, ["approval"]);
+	assert.equal(await h.quiz("approval", "ask_user_question"), undefined, "the learner can approve the path without a concept-diagram block");
+	assert.equal(h.calls.length, 0);
+
+	await h.assistant(LONG_SYSTEM_PROSE);
+	const result = await h.emit("agent_before_settle", { entries: [], continue: false, outcome: "completed", context: {} });
+	assert.equal(result?.continue, true, "actual post-plan system teaching still requests its diagram");
+	assert.match(result.entries.at(-1).content, /Add the Mermaid diagram now/);
+	assert.equal(h.calls.length, 1);
+});
+
+test("a malformed dependency map in a learning path still receives a Mermaid syntax repair", async () => {
+	const ext = await load();
+	const h = harness(ext, []);
+	await h.emit("agent_start", {});
+	await h.assistant("## Learning path\n\nHere is the proposed order:\n\n```mermaid\nflowchart TD\n%% dependency-map\n  A[Sensor (glucose)] --> B\n```");
+	const result = await h.emit("agent_before_settle", { entries: [], continue: false, outcome: "completed", context: {} });
+	assert.equal(result?.continue, true);
+	assert.match(result.entries.at(-1).content, /failed to parse/);
+	assert.equal(h.calls.length, 0, "syntax repair does not require the semantic classifier");
 });
 
 test("non-systems, short probes and already-covered systems pass without a diagram", async () => {
