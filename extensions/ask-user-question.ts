@@ -579,6 +579,8 @@ export default function askUserQuestion(pi: ExtensionAPI) {
 			'Users will always be able to select "Other" to provide custom text input when options are provided.',
 			"Use multiSelect: true only when you need multiple answers to the same question.",
 			'If you recommend a specific option, make it the first option in the list and add "(Recommended)" at the end of the label.',
+			"During a lesson, use this for a real choice about goal, depth, pace, or direction; use quiz to check understanding. State briefly in details how the answer will shape the lesson, and do not repeat a preference the learner already gave.",
+			"Keep choices short, distinct, and phrased in the learner's language. Avoid asking the learner to choose between terms that have not yet been explained.",
 			"Prefer this tool over guessing when requirements, preferences, or implementation choices are unclear.",
 			"Use this tool when multiple valid implementation paths exist and the preferred path depends on user choice.",
 		],

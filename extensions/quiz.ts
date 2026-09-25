@@ -110,7 +110,7 @@ const QuizParams = Type.Object({
 	}),
 	explanation: Type.String({
 		description:
-			"REQUIRED. Explanation revealed AFTER the user answers (shown whether they got it right or wrong). Use it to reinforce why the correct answer is correct.",
+			"REQUIRED. Revealed only AFTER the answer. In two or three short sentences, say why the correct choice works and address the most tempting misconception. Do not repeat the whole lesson or narrate your reasoning process.",
 	}),
 	shuffle: Type.Optional(
 		Type.Boolean({
@@ -885,7 +885,8 @@ export default function quiz(pi: ExtensionAPI) {
 			"quiz is GRADED; ask_user_question is not. If the question has a correct answer, use quiz. If you just need a preference, decision, or open-ended input, use ask_user_question.",
 			'correctAnswer is REQUIRED and is the option value, not a position number. Single-select: one string (e.g. "mercury"). Multi-select: an array of strings (e.g. ["belize", "niue"]).',
 			"Always pass the option's `value` string as correctAnswer — it is self-checking and prevents miscounting positions. A value that matches no option is a hard error.",
-			"explanation is REQUIRED — always say why the correct answer is correct.",
+			"explanation is REQUIRED. Keep feedback to two or three short sentences: why the answer is right, and why a tempting wrong choice fails. Do not repeat the lesson or expose private reasoning.",
+			"Ask one clear, answerable idea at a time. Prefer a concrete application or comparison from the explanation just taught over a definition recall question. Give enough facts in the stem to answer without guessing hidden assumptions.",
 			"Multi-select is graded as an exact-set match: the user is correct only if they select every correct option and no incorrect ones.",
 			"There is no free-text mode. An 'I don't know' choice is ALWAYS added automatically — provide ONLY the real, gradable options (at least two). Never add your own uncertainty/opt-out option like 'I don't know', 'I'm not sure', or 'Not sure'; that is handled for you and a manual one would be redundant or gradable-as-wrong.",
 			"If a result comes back as dontKnow, the user honestly did not know and did NOT guess — treat it as a genuine knowledge gap to teach into, not as a wrong answer.",
@@ -895,7 +896,7 @@ export default function quiz(pi: ExtensionAPI) {
 			"Anti-guessing hygiene: don't let the correct answer stand out by form (longest, most precise, most hedged, or the only one in the right format). Keep options similar in length, specificity, and phrasing so it can't be picked from shape alone.",
 			"Set multiSelect: true only when more than one option is correct.",
 			"Options are shuffled before display by default, so don't worry about which position you list the correct answer in. Set shuffle: false only when option order is meaningful (ordered values, or an 'All/None of the above' option that must stay last).",
-			"To probe nuance, ask several quick quiz questions and adapt each one based on the previous answers, rather than writing one giant question.",
+			"To probe nuance, ask a short question and adapt the next check to the answer. Do not stack several questions or unrelated conditions in one stem.",
 			"Don't leak the answer through formatting: keep option phrasing/length even and don't hint which is correct.",
 		],
 		parameters: QuizParams,
@@ -904,6 +905,13 @@ export default function quiz(pi: ExtensionAPI) {
 			const context = params.details?.trim() || undefined;
 			const explanation = params.explanation.trim();
 			const mode: QuizMode = params.multiSelect ? "multi-select" : "single-select";
+			const question = params.question.trim();
+			if (!question) {
+				return unavailableResult(params.question, mode, "quiz requires a question", [], context);
+			}
+			if (!explanation) {
+				return unavailableResult(question, mode, "quiz requires an explanation", [], context);
+			}
 
 			let options: QuizOption[];
 			try {
@@ -917,17 +925,6 @@ export default function quiz(pi: ExtensionAPI) {
 			if (params.shuffle !== false) {
 				options = shuffleOptions(options);
 			}
-
-			// Emit the true (post-shuffle) display order immediately, before the UI
-			// blocks on the user's answer. Listeners such as md-log rely on this to
-			// show the question in the SAME order the user actually sees it, instead
-			// of the pre-shuffle order the agent originally wrote in its tool call.
-			// Deliberately omits correctIndices/explanation — this fires before the
-			// user has answered and must not leak the answer.
-			onUpdate?.({
-				content: [{ type: "text", text: "Awaiting user response..." }],
-				details: { options: options.map((o, i) => ({ index: i + 1, label: o.label })) },
-			});
 
 			const { indices: correctIndices, error: correctError } = resolveCorrect(
 				params.correctAnswer as string | string[],
@@ -951,10 +948,24 @@ export default function quiz(pi: ExtensionAPI) {
 			if (correctError) {
 				return unavailableResult(params.question, mode, `quiz ${correctError}`, correctIndices, context);
 			}
+			if (mode === "single-select" && correctIndices.length !== 1) {
+				return unavailableResult(question, mode, "quiz has multiple correct answers; set multiSelect: true", correctIndices, context);
+			}
+			if (mode === "multi-select" && correctIndices.length < 2) {
+				return unavailableResult(question, mode, "quiz multiSelect requires at least two correct answers", correctIndices, context);
+			}
 
 			if (!ctx.hasUI) {
 				return unavailableResult(params.question, mode, "quiz requires interactive mode UI", correctIndices, context);
 			}
+
+			// Announce only a valid, interactive question. The note writer receives
+			// the true shuffled order before the UI blocks; rejected calls leave no
+			// stray question callout. The answer and explanation remain private.
+			onUpdate?.({
+				content: [{ type: "text", text: "Awaiting user response..." }],
+				details: { options: options.map((o, i) => ({ index: i + 1, label: o.label })) },
+			});
 
 			return withUILock(async () => {
 				const response =
