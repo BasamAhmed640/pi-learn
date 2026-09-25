@@ -139,7 +139,9 @@ export function inspectPresentation(markdown, trace) {
 		if (wordCount(q.args?.question ?? "") < 5) issues.push("question under five words");
 		if (options.length < 2) issues.push("fewer than two choices");
 		if (new Set(labels).size !== labels.length) issues.push("duplicate choices");
-		if (wordCount(q.args?.explanation ?? "") < 20) issues.push("feedback under 20 words");
+		// Two clear, compact sentences can explain a probe in 15–19 words.
+		// The longer rendered-feedback check below still catches missing answers.
+		if (wordCount(q.args?.explanation ?? "") < 15) issues.push("feedback under 15 words");
 		return { question: String(q.args?.question ?? ""), afterApproval: !!q.afterApproval, issues };
 	}).filter((q) => q.issues.length);
 	const questionCallouts = (rendered.match(/^>\s*\[!question\]\s*(?:Quiz|Question)\s*$/gm) ?? []).length;

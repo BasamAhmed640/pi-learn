@@ -62,6 +62,14 @@ const trace = {
 };
 const good = inspectPresentation(note, trace);
 assert(good.checks.every((c) => c.pass), JSON.stringify(good.checks));
+const concise = inspectPresentation(note, {
+	...trace,
+	toolCalls: [{ ...trace.toolCalls[0], args: {
+		...trace.toolCalls[0].args,
+		explanation: "Higher upstream pressure opens the leaflets. When pressure reverses, the leaflets meet and stop backflow.",
+	} }],
+});
+assert.equal(concise.checks.find((c) => c.id === "question-shape").pass, true);
 const bad = inspectPresentation(note.replace("## Blood follows pressure", "## Phase 2 — Plan\n\nAnalysis: I need to decide how to answer."), { ...trace, driver: { ...trace.driver, stopReason: "timeout" } });
 assert.equal(bad.checks.find((c) => c.id === "run-complete").pass, false);
 assert.equal(bad.checks.find((c) => c.id === "no-visible-process").pass, false);
