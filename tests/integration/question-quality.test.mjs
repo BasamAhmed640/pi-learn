@@ -65,5 +65,7 @@ test("question tools guide the tutor toward focused checks and purposeful learne
 	assert.match(quiz.promptGuidelines.join(" "), /two or three short sentences/);
 	assert.match(quiz.promptGuidelines.join(" "), /selected option and correct that specific misconception/);
 	assert.match(quiz.promptGuidelines.join(" "), /descriptions are visible before the answer/);
+	assert.match(quiz.promptGuidelines.join(" "), /details appears verbatim in the learner's question callout/);
 	assert.match(ask.promptGuidelines.join(" "), /goal, depth, pace, or direction/);
+	assert.match(ask.promptGuidelines.join(" "), /details appears verbatim in the learner's question callout/);
 });

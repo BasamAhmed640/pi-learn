@@ -94,7 +94,7 @@ const QuizParams = Type.Object({
 		description: "The single quiz question to ask. Ask exactly one question per tool call.",
 	}),
 	details: Type.Optional(
-		Type.String({ description: "Optional extra context or instructions shown under the question." }),
+		Type.String({ description: "Optional learner-facing setup shown verbatim under the question. Include only facts or instructions needed to answer; never tutor process, probe bookkeeping, or session status." }),
 	),
 	options: Type.Array(OptionSchema, {
 		description:
@@ -887,6 +887,7 @@ export default function quiz(pi: ExtensionAPI) {
 			"Always pass the option's `value` string as correctAnswer — it is self-checking and prevents miscounting positions. A value that matches no option is a hard error.",
 			"explanation is REQUIRED. Keep feedback to two or three short sentences: why the answer is right, and why a tempting wrong choice fails. Do not repeat the lesson or expose private reasoning.",
 			"Ask one clear, answerable idea at a time. Prefer a concrete application or comparison from the explanation just taught over a definition recall question. Give enough facts in the stem to answer without guessing hidden assumptions.",
+			"details appears verbatim in the learner's question callout. Use it only for setup needed to answer; never put probe bookkeeping, session status, tool plans, or tutor process there.",
 			"Multi-select is graded as an exact-set match: the user is correct only if they select every correct option and no incorrect ones.",
 			"There is no free-text mode. An 'I don't know' choice is ALWAYS added automatically — provide ONLY the real, gradable options (at least two). Never add your own uncertainty/opt-out option like 'I don't know', 'I'm not sure', or 'Not sure'; that is handled for you and a manual one would be redundant or gradable-as-wrong.",
 			"If a result comes back as dontKnow, the user honestly did not know and did NOT guess — treat it as a genuine knowledge gap to teach into, not as a wrong answer.",
