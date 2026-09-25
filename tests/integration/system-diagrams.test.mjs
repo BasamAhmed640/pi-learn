@@ -75,6 +75,12 @@ test("the policy is injected as a structured system-prompt section on every run"
 	await h.emit("before_agent_start", linkedEvent);
 	assert.match(linkedEvent.systemPromptOptions.sections.lesson_presentation, /clear, self-contained book section/);
 	assert.match(linkedEvent.systemPromptOptions.sections.lesson_presentation, /Do not expose private reasoning/);
+	assert.match(linkedEvent.systemPromptOptions.sections.lesson_presentation, /approval of the Learning path/);
+	assert.match(linkedEvent.systemPromptOptions.sections.lesson_presentation, /Never write an approval or check question as bare prose/);
+	assert.match(linkedEvent.systemPromptOptions.sections.lesson_presentation, /one substantial concept section/);
+	assert.match(linkedEvent.systemPromptOptions.sections.lesson_presentation, /one or two diagnostic quiz checks/);
+	assert.match(linkedEvent.systemPromptOptions.sections.lesson_presentation, /save concept diagrams and teaching sections until the learner approves the path/);
+	assert.match(linkedEvent.systemPromptOptions.sections.lesson_presentation, /on a generic "Continue," advance to its next concept/);
 });
 
 test("an undiagrammed system explanation holds back its quiz once, then the diagram unlocks it", async () => {
