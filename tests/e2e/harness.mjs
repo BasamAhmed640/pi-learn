@@ -334,7 +334,7 @@ export async function runSession(o) {
 						call.executed &&
 						!trace.driver.approved &&
 						trace.driver.planTurn !== null &&
-						/(plan|learning path|go ahead|proceed|start|begin|sound|look good|approve|ready)/i.test(String(call.args?.question ?? ""))
+						/(plan|learning path|shall we|follow this|go ahead|proceed|start|begin|sound|look good|approve|ready)/i.test(String(call.args?.question ?? ""))
 					) {
 						trace.driver.approved = true;
 						trace.driver.approvedAtTurn = currentTurn;
