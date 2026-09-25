@@ -99,4 +99,11 @@ if (!args["no-analyze"]) {
 	console.log(`\nacceptance: ${report.summary.passed}/${report.summary.total} scenario(s) pass -> ${join(outDir, "report.md")}`);
 }
 const executionOk = results.length === scenarios.length && results.every((r) => r.ok && !r.fatal && !String(r.stopReason ?? "").includes("timeout"));
-process.exit(executionOk && acceptanceOk ? 0 : 1);
+let presentationOk = true;
+if (args.scenario === "presentation") {
+	const { checkPresentationRun } = await import("./presentation-check.mjs");
+	const report = checkPresentationRun(outDir);
+	presentationOk = report.summary.total === 5 && report.summary.passed === 5;
+	console.log(`presentation: ${report.summary.passed}/${report.summary.total} topic(s) pass automated checks -> ${join(outDir, "report-presentation.md")}`);
+}
+process.exit(executionOk && acceptanceOk && presentationOk ? 0 : 1);

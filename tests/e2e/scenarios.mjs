@@ -100,6 +100,63 @@ export const SCENARIOS = [
 		phaseA: { maxUserTurns: 3 },
 		phaseB: { maxUserTurns: 3 }, // /learn resume + 2 more turns
 	},
+	// Five distinct subjects for the note-presentation release check. Keep these out of
+	// the historical `all` batch; invoke them together with `--scenario presentation`.
+	{
+		id: "present-bga-interface",
+		kind: "system",
+		suite: "presentation",
+		extended: true,
+		visualSubject: true,
+		topic: "How a BGA chip package physically attaches to a circuit board",
+		goal: "I want to recognize the solder-ball grid on the underside of a BGA package and understand the path each ball makes into the board.",
+		maxUserTurns: 6,
+		maxQuizChecksAfterPlan: 1,
+	},
+	{
+		id: "present-heart-valves",
+		kind: "system",
+		suite: "presentation",
+		extended: true,
+		visualSubject: true,
+		topic: "How the heart valves direct blood through the heart",
+		goal: "I want to trace one heartbeat's blood flow and recognize where the valves sit in a real anatomical view.",
+		maxUserTurns: 6,
+		maxQuizChecksAfterPlan: 1,
+	},
+	{
+		id: "present-crystals",
+		kind: "non-system",
+		suite: "presentation",
+		extended: true,
+		visualSubject: true,
+		topic: "How to distinguish quartz from calcite in a hand specimen",
+		goal: "I want to recognize the visible crystal shape and cleavage clues and know which observations actually distinguish the two minerals.",
+		maxUserTurns: 6,
+		maxQuizChecksAfterPlan: 1,
+	},
+	{
+		id: "present-binary-search",
+		kind: "ambiguous",
+		suite: "presentation",
+		extended: true,
+		visualSubject: false,
+		topic: "Why binary search finds a number quickly in a sorted list",
+		goal: "I want to understand the halving step well enough to trace a search and explain why sorting is required.",
+		maxUserTurns: 6,
+		maxQuizChecksAfterPlan: 1,
+	},
+	{
+		id: "present-primes",
+		kind: "non-system",
+		suite: "presentation",
+		extended: true,
+		visualSubject: false,
+		topic: "Why 1 is not a prime number",
+		goal: "I want to understand the two-divisor definition and why including 1 would break the idea of unique prime factorization.",
+		maxUserTurns: 6,
+		maxQuizChecksAfterPlan: 1,
+	},
 ];
 
 export const KINDS = ["system", "complex-system", "ambiguous", "non-system", "resume"];
@@ -113,10 +170,12 @@ export function selectScenarios(selector) {
 	const out = [];
 	for (const w of wanted) {
 		const matches =
-			w === "all" ? SCENARIOS.filter((s) => !s.extended) : SCENARIOS.filter((s) => s.id === w || (s.kind === w && !s.extended));
+			w === "all" ? SCENARIOS.filter((s) => !s.extended)
+				: w === "presentation" ? SCENARIOS.filter((s) => s.suite === "presentation")
+				: SCENARIOS.filter((s) => s.id === w || (s.kind === w && !s.extended));
 		if (matches.length === 0) {
 			throw new Error(
-				`Unknown scenario "${w}". Known ids: ${SCENARIOS.map((s) => s.id).join(", ")}; kinds: ${KINDS.join(", ")}; or "all".`,
+				`Unknown scenario "${w}". Known ids: ${SCENARIOS.map((s) => s.id).join(", ")}; kinds: ${KINDS.join(", ")}; or "all"/"presentation".`,
 			);
 		}
 		for (const m of matches) if (!out.some((o) => o.id === m.id)) out.push(m);
