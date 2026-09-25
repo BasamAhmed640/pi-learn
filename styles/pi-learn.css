@@ -11,15 +11,17 @@
  * to read.
  */
 
-/* Substantial concepts read as separate short sections rather than one transcript. */
-.pi-learn .markdown-rendered h3 {
+/* Substantial concepts read as separate short sections in reading and live preview. */
+.pi-learn h3,
+.pi-learn .HyperMD-header-3 {
 	margin-block: 2.2rem 0.7rem;
 	padding-top: 0.65rem;
 	border-top: 1px solid var(--background-modifier-border);
 	line-height: 1.3;
 }
 
-.pi-learn .markdown-rendered p {
+.pi-learn .markdown-rendered p,
+.pi-learn.markdown-rendered p {
 	line-height: 1.65;
 }
 
