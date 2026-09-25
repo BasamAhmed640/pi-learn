@@ -4,6 +4,27 @@
 `C:\Users\basam\Documents\pi-learn` on branch `feat/system-diagrams`.
 Goals and acceptance criteria: [PLAN.md](PLAN.md). Interfaces: [CONTRACTS.md](CONTRACTS.md).
 
+## 2026-09-25 release — readable Obsidian lessons
+
+- Linked lesson explanations now read as short concept sections with descriptive headings, connected paragraphs,
+  examples, equations and visuals beside the ideas they explain. The note writer keeps useful derivations while
+  omitting private reasoning and tutor work-log messages. Learner questions and answers retain their Obsidian
+  callouts; the correct option is written out in quiz feedback.
+- The tutor asks for Learning path approval through a question card, teaches one substantial concept at a time,
+  and waits for approval before concept diagrams. The diagram gate still validates a plan's dependency map.
+- Image search now tries one shorter subject query when a precise Commons search returns no usable raster image.
+  Preview, relevance, attribution and learner-observation checks remain in force. Image captions no longer repeat
+  “Notice.” A final BGA lesson placed a licensed, visually checked underside photo next to the solder-ball explanation.
+- Five live topics—BGA package attachment, heart valves, quartz versus calcite, binary search, and why 1 is not
+  prime—passed **5/5** standard end-to-end checks. The first presentation sample passed **3/5** because BGA and
+  binary search had a plan question in plain prose. Final-code smoke runs for both now show zero bare questions;
+  the BGA run also has no preapproval concept diagram and imports a fitting image. The combined final evidence
+  set passes **5/5** standard and **5/5** presentation checks; `npm test` passes **216/216**. Detailed scores and
+  limits are in [ACCEPTANCE.md](ACCEPTANCE.md).
+- The shipped `pi-learn.css` is installed and enabled in `Basam's_Vault`, including new section spacing. Existing
+  learning notes were not rewritten. New linked passages use the new format; use `/reload` or restart an open Pi
+  session before starting `/learn`.
+
 ## 2026-09-24 release
 
 - Pi Learn replaces the `/md-log` and `/md-unlog` command flow with `/learn new`, `/learn open`,
