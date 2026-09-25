@@ -9,6 +9,7 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { getScenario } from "./scenarios.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..", "..");
@@ -241,8 +242,14 @@ async function analyzeScenario(outDir, id, mermaidLib) {
 	const tracePath = join(outDir, `${id}.json`);
 	const notePath = join(outDir, `${id}.md`);
 	const trace = JSON.parse(readFileSync(tracePath, "utf8"));
-	const scenario = trace.scenario ?? { id, kind: "unknown" };
+	const recordedScenario = trace.scenario ?? { id, kind: "unknown" };
+	// Presentation-suite subjects are classified by the current catalogue so a
+	// corrected *test classification* can be reported without altering the
+	// immutable live trace or changing the model's original topic/goal prompt.
+	const configuredScenario = recordedScenario.suite === "presentation" ? getScenario(id) : null;
+	const scenario = configuredScenario ? { ...recordedScenario, kind: configuredScenario.kind } : recordedScenario;
 	const res = { id, kind: scenario.kind, topic: scenario.topic, model: trace.model ?? trace.phases?.[0]?.model, notes: [] };
+	if (recordedScenario.kind !== scenario.kind) res.notes.push(`test classification corrected from ${recordedScenario.kind} to ${scenario.kind}; original trace preserved`);
 	if (trace.fatal) res.notes.push(`harness fatal: ${String(trace.fatal).split("\n")[0]}`);
 	if (!existsSync(notePath)) {
 		res.error = "no note copy (<scenario>.md) in run directory";

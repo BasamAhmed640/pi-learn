@@ -15,6 +15,27 @@ import { selectScenarios } from "./scenarios.mjs";
 const presentationScenarios = selectScenarios("presentation");
 const wordCount = (text) => (String(text).match(/\b[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*\b/gu) ?? []).length;
 
+/** Remove Obsidian's `%% ... %%` comments while preserving Mermaid `%%` tags in fences. */
+export function visibleMarkdown(markdown) {
+	let fenced = false;
+	let comment = false;
+	const visible = [];
+	for (const line of markdown.split(/\r?\n/)) {
+		if (!comment && /^\s*(```|~~~)/.test(line)) {
+			fenced = !fenced;
+			visible.push(line);
+			continue;
+		}
+		if (!fenced && line.trim() === "%%") {
+			comment = !comment;
+			continue;
+		}
+		if (comment) continue;
+		visible.push(fenced ? line : line.replace(/%%.*?%%/g, ""));
+	}
+	return visible.join("\n");
+}
+
 /** Keep only rendered teaching prose, including PI callout bodies. */
 export function teachingLines(markdown) {
 	const withoutYaml = markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "");
@@ -60,7 +81,8 @@ export function teachingLines(markdown) {
 }
 
 export function inspectPresentation(markdown, trace) {
-	const lines = teachingLines(markdown);
+	const rendered = visibleMarkdown(markdown);
+	const lines = teachingLines(rendered);
 	const prose = lines.join("\n");
 	const headings = lines.filter((l) => /^#{1,6}\s+\S/.test(l)).map((l) => l.replace(/^#{1,6}\s+/, "").trim());
 	const contentHeadings = headings.filter((h) => !/^(?:Session \d|Lesson plan|Plan$|Teaching plan$)/i.test(h));
@@ -84,6 +106,7 @@ export function inspectPresentation(markdown, trace) {
 	for (const [index, line] of lines.entries()) {
 		if (leakPatterns.some((p) => p.test(line))) reasoningLeaks.push({ line: index + 1, text: line.trim().slice(0, 160) });
 	}
+	const bareQuestions = lines.map((line, index) => ({ line: index + 1, text: line.trim() })).filter((entry) => entry.text.endsWith("?") && !/^(?:#|\|)/.test(entry.text));
 	const longParagraphs = prose.split(/\n\s*\n/).filter((p) => {
 		const first = p.trimStart();
 		return first && !/^(?:#|[-*+]\s|\d+[.)]\s|\|)/.test(first);
@@ -119,10 +142,10 @@ export function inspectPresentation(markdown, trace) {
 		if (wordCount(q.args?.explanation ?? "") < 20) issues.push("feedback under 20 words");
 		return { question: String(q.args?.question ?? ""), afterApproval: !!q.afterApproval, issues };
 	}).filter((q) => q.issues.length);
-	const questionCallouts = (markdown.match(/^>\s*\[!question\]\s*(?:Quiz|Question)\s*$/gm) ?? []).length;
-	const answerCallouts = (markdown.match(/^>\s*\[!(?:success|failure|example|warning|question)\]\s*(?:Quiz\s+[—-]|Answer\b|Question\s+[—-])/gm) ?? []).length;
+	const questionCallouts = (rendered.match(/^>\s*\[!question\]\s*(?:Quiz|Question)\s*$/gm) ?? []).length;
+	const answerCallouts = (rendered.match(/^>\s*\[!(?:success|failure|example|warning|question)\]\s*(?:Quiz\s+[—-]|Answer\b|Question\s+[—-])/gm) ?? []).length;
 	const feedbacks = [];
-	const mdLines = markdown.split(/\r?\n/);
+	const mdLines = rendered.split(/\r?\n/);
 	for (let i = 0; i < mdLines.length; i++) {
 		if (!/^>\s*\[!(?:success|failure|warning|question)\]\s*Quiz\s+[—-]/.test(mdLines[i])) continue;
 		const body = [];
@@ -133,8 +156,8 @@ export function inspectPresentation(markdown, trace) {
 
 	const images = [];
 	const imagePattern = /!\[([^\]]*)\]\((?:<([^>]+)>|([^\s)]+))\)/g;
-	for (const match of markdown.matchAll(imagePattern)) {
-		const next = markdown.slice(match.index + match[0].length, match.index + match[0].length + 900);
+	for (const match of rendered.matchAll(imagePattern)) {
+		const next = rendered.slice(match.index + match[0].length, match.index + match[0].length + 900);
 		images.push({
 			alt: match[1],
 			path: match[2] ?? match[3],
@@ -144,7 +167,7 @@ export function inspectPresentation(markdown, trace) {
 	}
 	const imageSearches = calls.filter((c) => c.name === "search_commons_images").length;
 	const imports = calls.filter((c) => c.name === "import_commons_image" && c.executed).length;
-	const conceptDiagramCount = (markdown.match(/^%%\s*system\s*:/gm) ?? []).length;
+	const conceptDiagramCount = (rendered.match(/^%%\s*system\s*:/gm) ?? []).length;
 	const incomplete = phases.flatMap((p) => [
 		...(["timeout", "error"].includes(p.driver?.stopReason) ? [`stopped ${p.driver.stopReason}`] : []),
 		...(p.resources?.extensionLoadErrors ?? []).map(() => "extension load error"),
@@ -155,6 +178,7 @@ export function inspectPresentation(markdown, trace) {
 		{ id: "run-complete", pass: incomplete.length === 0, detail: incomplete.join("; ") || "no timeout, fatal or extension error" },
 		{ id: "book-section", pass: contentHeadings.length >= 1 && substantialSections.length >= 1 && substantialPostPlanSections.length >= 1 && wordCount(prose) >= 140, detail: `${contentHeadings.length} reader-facing heading(s), ${substantialSections.length} substantial note section(s), ${substantialPostPlanSections.length} substantial section(s) after plan approval, ${wordCount(prose)} teaching words` },
 		{ id: "no-visible-process", pass: workflowHeadings.length === 0 && reasoningLeaks.length === 0, detail: `${workflowHeadings.length} workflow heading(s), ${reasoningLeaks.length} reasoning marker(s)` },
+		{ id: "questions-in-callouts", pass: bareQuestions.length === 0, detail: `${bareQuestions.length} question(s) outside the question tool callouts` },
 		{ id: "scannable-prose", pass: longParagraphs.length === 0, detail: `${longParagraphs.length} paragraph(s) over 160 words` },
 		{ id: "question-record", pass: quizzes.length > 0 && questionCallouts >= quizzes.length && answerCallouts >= quizzes.length, detail: `${quizzes.length} executed quiz(es), ${questionCallouts} question and ${answerCallouts} answer callout(s)` },
 		{ id: "post-plan-check", pass: postPlanQuizzes.length >= 1, detail: `${postPlanQuizzes.length} executed quiz(es) after plan approval` },
@@ -162,7 +186,7 @@ export function inspectPresentation(markdown, trace) {
 		{ id: "feedback-content", pass: feedbacks.length >= quizzes.length && weakFeedbacks.length === 0, detail: `${feedbacks.length} rendered quiz feedback block(s), ${weakFeedbacks.length} missing answer text or under 25 words` },
 		{ id: "image-captions", pass: images.every((i) => wordCount(i.alt) >= 6 && i.hasObservation && i.hasAttribution), detail: `${images.length} image(s), ${imports} successful import(s), ${imageSearches} search(es); each image needs descriptive alt text, observation and attribution` },
 	];
-	return { headings, contentHeadings, substantialSections, substantialPostPlanSections, workflowHeadings, teachingWords: wordCount(prose), reasoningLeaks, longParagraphs, quizzes: quizzes.map((q) => ({ question: q.args?.question, explanation: q.args?.explanation, afterApproval: !!q.afterApproval })), weakQuestions, questionCallouts, answerCallouts, feedbacks, weakFeedbacks, conceptDiagramCount, imageSearches, imports, images, checks };
+	return { headings, contentHeadings, substantialSections, substantialPostPlanSections, workflowHeadings, teachingWords: wordCount(prose), reasoningLeaks, bareQuestions, longParagraphs, quizzes: quizzes.map((q) => ({ question: q.args?.question, explanation: q.args?.explanation, afterApproval: !!q.afterApproval })), weakQuestions, questionCallouts, answerCallouts, feedbacks, weakFeedbacks, conceptDiagramCount, imageSearches, imports, images, checks };
 }
 
 function markdownReport(report) {
@@ -184,6 +208,7 @@ function markdownReport(report) {
 		for (const c of s.checks) out.push(`- ${c.pass ? "✓" : "✗"} ${c.id}: ${c.detail}`);
 		if (s.workflowHeadings.length) out.push(`- Workflow headings: ${s.workflowHeadings.join("; ")}`);
 		for (const leak of s.reasoningLeaks) out.push(`- Possible reasoning leak: ${leak.text}`);
+		for (const question of s.bareQuestions ?? []) out.push(`- Question outside a tool callout: ${question.text}`);
 		for (const p of s.longParagraphs) out.push(`- Long paragraph (${p.words} words): ${p.excerpt}…`);
 		for (const q of s.weakQuestions) out.push(`- Question shape: ${q.question} — ${q.issues.join(", ")}`);
 		for (const img of s.images) out.push(`- Image: ${img.alt} — notice=${img.hasObservation}, attribution=${img.hasAttribution}; inspect preview for subject accuracy.`);
@@ -199,7 +224,7 @@ export function checkPresentationRun(outDir) {
 		const notePath = join(outDir, `${scenario.id}.md`);
 		const tracePath = join(outDir, `${scenario.id}.json`);
 		if (!existsSync(notePath) || !existsSync(tracePath)) {
-			return { id: scenario.id, topic: scenario.topic, visualSubject: scenario.visualSubject, images: [], imageSearches: 0, workflowHeadings: [], reasoningLeaks: [], longParagraphs: [], weakQuestions: [], checks: [{ id: "run-complete", pass: false, detail: `missing ${!existsSync(notePath) ? "note" : "trace"}` }], automatedPass: false };
+			return { id: scenario.id, topic: scenario.topic, visualSubject: scenario.visualSubject, images: [], imageSearches: 0, workflowHeadings: [], reasoningLeaks: [], bareQuestions: [], longParagraphs: [], weakQuestions: [], checks: [{ id: "run-complete", pass: false, detail: `missing ${!existsSync(notePath) ? "note" : "trace"}` }], automatedPass: false };
 		}
 		const result = inspectPresentation(readFileSync(notePath, "utf8"), JSON.parse(readFileSync(tracePath, "utf8")));
 		result.checks.push({ id: "concept-diagram", pass: scenario.kind === "non-system" ? result.conceptDiagramCount === 0 : result.conceptDiagramCount >= 1, detail: `${result.conceptDiagramCount} concept diagram(s) for ${scenario.kind}` });

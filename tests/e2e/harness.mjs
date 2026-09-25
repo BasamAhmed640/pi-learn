@@ -64,6 +64,10 @@ function hasMermaid(text) {
 /** Does this assistant text present a plan and ask for the learner's go-ahead? */
 export function isPlanPresentation(text) {
 	if (!hasMermaid(text)) return false;
+	// The reading-note layout presents the dependency map under a Learning path
+	// heading, then asks for approval with ask_user_question. The question is a
+	// separate tool call, so it need not appear as a `?` in assistant prose.
+	if (/%%\s*dependency-map/.test(text) && /^#{2,3}\s+Learning path\b/im.test(text)) return true;
 	if (/%%\s*dependency-map/.test(text) && /\?/.test(text)) return true;
 	const tail = text.slice(-1200);
 	return (
@@ -330,7 +334,7 @@ export async function runSession(o) {
 						call.executed &&
 						!trace.driver.approved &&
 						trace.driver.planTurn !== null &&
-						/(plan|go ahead|proceed|start|begin|sound|look good|approve|ready)/i.test(String(call.args?.question ?? ""))
+						/(plan|learning path|go ahead|proceed|start|begin|sound|look good|approve|ready)/i.test(String(call.args?.question ?? ""))
 					) {
 						trace.driver.approved = true;
 						trace.driver.approvedAtTurn = currentTurn;

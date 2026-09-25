@@ -126,7 +126,7 @@ export const SCENARIOS = [
 	},
 	{
 		id: "present-crystals",
-		kind: "non-system",
+		kind: "ambiguous", // the identification procedure can be drawn as a useful system
 		suite: "presentation",
 		extended: true,
 		visualSubject: true,

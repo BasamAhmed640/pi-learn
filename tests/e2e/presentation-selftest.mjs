@@ -1,12 +1,15 @@
 // Offline checks for the five-topic presentation report. No model calls.
 import assert from "node:assert/strict";
-import { inspectPresentation, teachingLines } from "./presentation-check.mjs";
+import { inspectPresentation, teachingLines, visibleMarkdown } from "./presentation-check.mjs";
+import { isPlanPresentation } from "./harness.mjs";
 import { selectScenarios } from "./scenarios.mjs";
 
 const selected = selectScenarios("presentation");
 assert.equal(selected.length, 5);
 assert.equal(new Set(selected.map((s) => s.topic)).size, 5);
 assert.equal(selectScenarios("all").length, 10);
+assert.equal(isPlanPresentation("## Learning path\n\n```mermaid\nflowchart LR\n%% dependency-map\nA --> B\n```"), true);
+assert.equal(visibleMarkdown("%%\n```mermaid\n%% system: hidden\nA --> B\n```\n%%\n```mermaid\n%% system: visible\nA --> B\n```" ).match(/^%% system:/gm)?.length, 1);
 
 const text = `## Session 1 (2026-09-25)
 > [!quote] YOU
