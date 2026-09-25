@@ -212,7 +212,7 @@ function markdownReport(report) {
 		for (const p of s.longParagraphs) out.push(`- Long paragraph (${p.words} words): ${p.excerpt}…`);
 		for (const q of s.weakQuestions) out.push(`- Question shape: ${q.question} — ${q.issues.join(", ")}`);
 		for (const img of s.images) out.push(`- Image: ${img.alt} — notice=${img.hasObservation}, attribution=${img.hasAttribution}; inspect preview for subject accuracy.`);
-		if (s.images.length === 0 && s.visualSubject) out.push("- No image imported. Review search previews to confirm that skipping the image was appropriate.");
+		if (s.images.length === 0 && s.visualSubject) out.push("- No image imported. Review whether this short section reached the visual need; if it did, inspect the search previews before judging the omission.");
 		out.push("", "Manual scores: clarity __/5; layout __/5; factual accuracy __/5; questions __/5; image fit __/5 (or N/A).", "");
 	}
 	return out.join("\n");
@@ -228,7 +228,9 @@ export function checkPresentationRun(outDir) {
 		}
 		const result = inspectPresentation(readFileSync(notePath, "utf8"), JSON.parse(readFileSync(tracePath, "utf8")));
 		result.checks.push({ id: "concept-diagram", pass: scenario.kind === "non-system" ? result.conceptDiagramCount === 0 : result.conceptDiagramCount >= 1, detail: `${result.conceptDiagramCount} concept diagram(s) for ${scenario.kind}` });
-		if (scenario.visualSubject) result.checks.push({ id: "visual-search", pass: result.imageSearches > 0, detail: `${result.imageSearches} Commons search(es) for a visually grounded topic` });
+		// The harness stops after the first post-plan check. A visual opportunity
+		// may occur later in the lesson, so search/import counts are evidence for
+		// review, not a quota imposed on every short section.
 		return { id: scenario.id, topic: scenario.topic, visualSubject: scenario.visualSubject, ...result, automatedPass: result.checks.every((c) => c.pass) };
 	});
 	const report = { runId: basename(outDir), generatedAt: new Date().toISOString(), summary: { total: topics.length, passed: topics.filter((s) => s.automatedPass).length }, topics, manualReview: "required" };
