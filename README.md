@@ -19,8 +19,11 @@ This fork adds:
 - **Obsidian notes you can find and continue.** `/learn new <topic>` creates and links a note. `/learn open` and
   `/learn search` find existing notes in Pi with completion or a picker. `/learn resume` starts a fresh Pi session
   using the actual note contents. Each Pi session gets its own section, and `Learn Index.md` links the topics.
+- **Lesson pages written for rereading.** New explanations use concept headings, short connected paragraphs and
+  examples beside their diagrams or images. The note writer leaves out private reasoning and short tool/probe
+  status messages, while keeping the question and answer callouts. Existing note text is preserved.
 - **Centered presentation.** A scoped CSS snippet centers callouts, display equations and Mermaid diagrams in
-  reading view and live preview.
+  reading view and live preview, with spacing between concept sections.
 - **Real reference images when they teach something visible.** During planning, the tutor identifies lesson points
   where a specific real view would help the learner recognize or understand a concept. Before each search it states
   what the learner needs to see and why. It previews Wikimedia Commons results and imports an image only when the
@@ -87,7 +90,8 @@ the most recently studied learning note.
 
 Learning notes get properties (`learn-topic`, `learn-status`, `learn-sessions`, `cssclasses: pi-learn`, …). Each Pi
 session writes under `## Session N (date)`; resumed sessions link back to the previous one. Questions and answers
-appear as callouts. Existing note content remains in place.
+appear as callouts. New lesson prose appears as regular Markdown under concept headings. Existing note content
+remains in place.
 
 ## What's in it
 

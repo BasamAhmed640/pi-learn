@@ -5,11 +5,23 @@
  * it to every note it creates or links), so the rest of the vault is untouched.
  * Works in reading view and live preview.
  *
- * Centers the three block types the lessons are built from: callouts, display
+ * Gives concept sections a readable rhythm and centers callouts, display
  * equations and Mermaid diagrams (plus embedded diagram images). Text inside a
  * callout stays left-aligned so questions, options and explanations remain easy
  * to read.
  */
+
+/* Substantial concepts read as separate short sections rather than one transcript. */
+.pi-learn .markdown-rendered h3 {
+	margin-block: 2.2rem 0.7rem;
+	padding-top: 0.65rem;
+	border-top: 1px solid var(--background-modifier-border);
+	line-height: 1.3;
+}
+
+.pi-learn .markdown-rendered p {
+	line-height: 1.65;
+}
 
 /* Callouts: centered boxes that shrink around short content and grow to the column width. */
 .pi-learn .callout {

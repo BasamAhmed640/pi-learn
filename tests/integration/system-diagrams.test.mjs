@@ -69,6 +69,12 @@ test("the policy is injected as a structured system-prompt section on every run"
 	const event = { prompt: "teach me", systemPrompt: "", systemPromptOptions: { sections: {} } };
 	await h.emit("before_agent_start", event);
 	assert.match(event.systemPromptOptions.sections.system_diagrams, /SYSTEMS GET A MERMAID DIAGRAM BY DEFAULT/);
+	assert.equal(event.systemPromptOptions.sections.lesson_presentation, undefined, "unlinked Pi sessions keep their own presentation");
+	h.ctx.sessionManager.getEntries = () => [{ type: "custom", customType: "learn-link", data: { file: "C:/vault/Learn/Topic.md" } }];
+	const linkedEvent = { prompt: "teach me", systemPrompt: "", systemPromptOptions: { sections: {} } };
+	await h.emit("before_agent_start", linkedEvent);
+	assert.match(linkedEvent.systemPromptOptions.sections.lesson_presentation, /clear, self-contained book section/);
+	assert.match(linkedEvent.systemPromptOptions.sections.lesson_presentation, /Do not expose private reasoning/);
 });
 
 test("an undiagrammed system explanation holds back its quiz once, then the diagram unlocks it", async () => {

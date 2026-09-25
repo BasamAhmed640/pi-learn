@@ -73,3 +73,16 @@ sections readable. The concrete goals and checks are:
 
 The end-to-end harness now starts through `/learn new` and resumes through `/learn resume`, so a missing command
 is a failure rather than a silent switch to the retired flow.
+
+## 2026-09-25 update: readable lesson pages
+
+The learner should be able to reread a saved explanation as a short section of a book. The questions remain
+interactive callouts. The release goals and pass bars are:
+
+| Goal | Change | Acceptance check |
+| --- | --- | --- |
+| P1: Keep the lesson, remove the work log | Save visible conceptual explanations but omit native thinking blocks, tagged reasoning, skill-loading notices and status-only probe/research messages. Preserve actual derivations, diagrams, equations and user content. | Focused note-writing tests include both removed private text and preserved subject-matter examples; sampled live notes contain no visible process narration. |
+| P2: Make explanations easy to follow | A lesson concept gets a descriptive heading, short connected paragraphs, a motivating problem and a concrete example or visual where it helps. CSS gives sections readable spacing. | Each live note has a substantial concept section; manual review scores clarity and layout from the rendered Markdown. |
+| P3: Keep questions useful and attractive | Retain centered question/answer callouts; ask one diagnostic idea at a time; give concise feedback showing the correct answer text and the governing mechanism. | No invalid question leaves a stray callout; five live notes contain answered checks after teaching, with human review of the stems, choices and feedback. |
+| P4: Test five different subjects | Run BGA packaging, heart valves, quartz versus calcite, binary search and prime numbers with the real model, Pi tools and note writer. | Each run reaches a teaching passage and answered check. Inspect notes for process leakage, readability, image relevance and attribution, diagrams where due, and question quality. A missing or timed-out run is incomplete. |
+| P5: Ship and install | Push to GitHub and update both the personal and vault Pi packages. | Both installed Git SHAs equal GitHub `main`; Pi loads the extension and its question tools without errors. |

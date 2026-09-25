@@ -34,6 +34,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { describeMermaid, extractMermaidBlocks, validateMermaid } from "./lib/mermaid.ts";
 import { findMermaidFences } from "./lib/learn-notes.ts";
 import { linkedNoteFromEntries } from "./lib/learn-link-state.ts";
+import { LESSON_PRESENTATION_POLICY } from "./lib/lesson-presentation.ts";
 import {
 	buildQualityReviewInput,
 	diagramHash,
@@ -435,7 +436,10 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (event, ctx) => {
 		// /learn and /learn-resume can link a note after session_start. The note is
 		// the resume source of truth: rejected diagrams are hidden there.
-		if (linkedNote(ctx)) rebuildDrawn(ctx);
+		if (linkedNote(ctx)) {
+			rebuildDrawn(ctx);
+			event.systemPromptOptions.sections.lesson_presentation = LESSON_PRESENTATION_POLICY;
+		}
 		event.systemPromptOptions.sections[PROMPT_SECTION] = SYSTEM_DIAGRAM_POLICY;
 	});
 
