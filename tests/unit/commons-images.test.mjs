@@ -77,6 +77,40 @@ test("search uses Commons file namespace, relevance order, raster and license fi
 	assert.equal(url.searchParams.get("gsrnamespace"), "6");
 	assert.equal(url.searchParams.get("gsrsearch"), "blood glucose microscope");
 	assert.equal(network.calls[0].init.redirect, "error");
+	assert.equal(network.calls.length, 1, "an eligible first search must not make a fallback request");
+});
+
+test("empty raster search retries once with a shorter named subject", async () => {
+	const pdf = page({
+		pageid: 7, title: "File:Long-query hit.pdf",
+		imageinfo: [{ ...page().imageinfo[0], mime: "application/pdf" }],
+	});
+	for (const [query, shorter] of [
+		["BGA package underside solder balls", "BGA package"],
+		["ball grid array underside", "ball grid array"],
+	]) {
+		const calls = [];
+		const fetchImpl = async (input) => {
+			const terms = new URL(String(input)).searchParams.get("gsrsearch");
+			calls.push(terms);
+			return api({ query: { pages: terms === query ? [pdf] : [page()] } });
+		};
+		const results = await searchCommonsImages(query, { fetchImpl });
+		assert.deepEqual(calls, [query, shorter]);
+		assert.equal(results.length, 1);
+		assert.equal(results[0].artist, "Jane & Joe");
+		assert.equal(results[0].license, "CC BY-SA 4.0");
+	}
+});
+
+test("an already-short subject does not trigger a generic fallback", async () => {
+	const calls = [];
+	const results = await searchCommonsImages("heart valves", { fetchImpl: async (input) => {
+		calls.push(new URL(String(input)).searchParams.get("gsrsearch"));
+		return api({ query: { pages: [] } });
+	} });
+	assert.deepEqual(results, []);
+	assert.deepEqual(calls, ["heart valves"]);
 });
 
 test("search rejects bad queries and handles an offline Commons API", async () => {

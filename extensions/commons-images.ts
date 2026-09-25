@@ -44,6 +44,10 @@ function markdownText(value: string): string {
 	return value.trim().replace(/[\\`*_{}\[\]()<>|]/g, "\\$&");
 }
 
+function observationText(value: unknown): string {
+	return typeof value === "string" ? value.trim().replace(/^(?:notice\b(?:\s*:\s*|\s+))+/i, "").trim() : "";
+}
+
 interface VisualIntent {
 	query: string;
 	neededView: string;
@@ -214,13 +218,14 @@ export default function (pi: ExtensionAPI) {
 			if (!selected) {
 				return { content: [{ type: "text", text: "That image was not previewed in the latest Commons search. Search again and inspect a preview before importing." }], details: { ok: false } };
 			}
-			const invalid = concreteText(params.what_to_notice, "what_to_notice", 260) ?? concreteText(params.alt_text, "alt_text", 240);
+			const observation = observationText(params.what_to_notice);
+			const invalid = concreteText(observation, "what_to_notice", 260) ?? concreteText(params.alt_text, "alt_text", 240);
 			if (invalid) return { content: [{ type: "text", text: `${invalid} Inspect the preview and describe what it actually shows before importing.` }], details: { ok: false, error: invalid } };
-			const mismatch = explicitPackageMismatch(selected.priorIntents, selected.candidate, params.what_to_notice, params.alt_text);
+			const mismatch = explicitPackageMismatch(selected.priorIntents, selected.candidate, observation, params.alt_text);
 			if (mismatch) return { content: [{ type: "text", text: mismatch }], details: { ok: false, error: mismatch } };
 			if (imageReviewsThisSession >= MAX_IMAGE_REVIEWS_PER_SESSION) return { content: [{ type: "text", text: "Image review limit reached for this Pi session. Continue the lesson without another web image." }], details: { ok: false, error: "image review limit reached" } };
 			imageReviewsThisSession++;
-			const reviewed = await reviewPreview(ctx, selected, params.what_to_notice, params.alt_text);
+			const reviewed = await reviewPreview(ctx, selected, observation, params.alt_text);
 			if (!reviewed.match) {
 				const message = `This preview was not imported: ${reviewed.reason} Search for a more precise view of ${selected.priorIntents[0]?.neededView ?? selected.intent.neededView}, or continue without an image.`;
 				return { content: [{ type: "text", text: message }], details: { ok: false, error: reviewed.reason } };
@@ -232,7 +237,7 @@ export default function (pi: ExtensionAPI) {
 				abandonedIntents = [];
 				newGoalReason = null;
 				previewed = new Map();
-				const block = `${imported.embed}\n\n*Notice: ${markdownText(params.what_to_notice)}*\n\n${imported.attribution}`;
+				const block = `${imported.embed}\n\n*Notice: ${markdownText(observation)}*\n\n${imported.attribution}`;
 				return {
 					content: [{ type: "text", text: `${imported.reused ? "Reused" : "Saved"} a local image in this vault. Place this complete block beside the relevant explanation:\n\n${block}` }],
 					details: { ok: true, path: imported.path, embed: imported.embed, block, attribution: imported.attribution, bytes: imported.bytes },

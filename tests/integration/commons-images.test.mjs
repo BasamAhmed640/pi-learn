@@ -121,7 +121,8 @@ test("pi loads both Commons tools; search previews before import and returns a v
 		assert.equal(reviews[0].context.messages[0].content[1].mimeType, "image/png");
 		assert.equal(reviews[0].options.reasoning, "minimal");
 		assert.match(imported.details.embed, /!\[Underside of a BGA package showing rows of solder balls\]\(<\.\.\/pi-learn-images\/commons-42-/);
-		assert.match(imported.details.block, /Notice the regular grid of solder balls/);
+		assert.match(imported.details.block, /\*Notice: the regular grid of solder balls on the package underside\.\*/);
+		assert.doesNotMatch(imported.details.block, /Notice: Notice/i);
 		assert.match(imported.content[0].text, /CC BY 4\.0/);
 		assert.ok(existsSync(imported.details.path));
 
@@ -157,8 +158,9 @@ test("pi loads both Commons tools; search previews before import and returns a v
 		reviewerVerdict = "match";
 		const newNode = await search.execute("new-node", { query: "silicon interposer", needed_view: "a cross-section of silicon interposer microbump connections", learning_goal: "how an interposer links separate chiplets", start_new_goal: true, new_goal_reason: "The BGA image search failed; the lesson has moved to the interposer node." }, undefined, () => {}, ctx());
 		assert.equal(newNode.details.count, 1, "a distinct later lesson node can begin a fresh visual goal");
-		const newNodeImport = await importer.execute("new-node-import", { candidate_id: "42", what_to_notice: "Notice the array of tiny vertical connections between the chiplet and interposer.", alt_text: "Cross-section showing microbump connections on a silicon interposer" }, undefined, () => {}, ctx());
+		const newNodeImport = await importer.execute("new-node-import", { candidate_id: "42", what_to_notice: "NOTICE: the array of tiny vertical connections between the chiplet and interposer.", alt_text: "Cross-section showing microbump connections on a silicon interposer" }, undefined, () => {}, ctx());
 		assert.equal(newNodeImport.details.ok, true);
+		assert.match(newNodeImport.details.block, /\*Notice: the array of tiny vertical connections between the chiplet and interposer\.\*/);
 		assert.match(reviews.at(-1).context.messages[0].content[0].text, /The BGA image search failed; the lesson has moved to the interposer node/);
 
 		await search.execute("no-model", { query: "BGA package underside", needed_view: "the BGA solder ball grid on the package underside", learning_goal: "how solder balls connect the package to its circuit board" }, undefined, () => {}, ctx());

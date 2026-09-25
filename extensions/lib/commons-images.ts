@@ -141,18 +141,36 @@ function candidateOf(page: any): CommonsCandidate | null {
 	};
 }
 
+function shorterSubjectQuery(query: string): string | null {
+	const words = query.split(/\s+/);
+	if (words.length < 3) return null;
+	const viewIndex = words.findIndex((word, index) => index >= 2 && /^(?:underside|bottom|rear|front|top|view|photo|photograph|image|picture|showing)[.,:;!?]*$/i.test(word));
+	const subject = viewIndex >= 2 ? words.slice(0, viewIndex) : words;
+	if (viewIndex < 2 && words.length < 4) return null;
+	const maxWords = /^[A-Z][A-Z0-9-]{1,7}$/.test(subject[0]) ? 2 : 3;
+	const shorter = subject.slice(0, maxWords).join(" ");
+	return shorter && shorter.toLowerCase() !== query.toLowerCase() ? shorter : null;
+}
+
 export async function searchCommonsImages(query: string, options: { fetchImpl?: Fetcher; limit?: number } = {}): Promise<CommonsCandidate[]> {
 	query = String(query ?? "").trim();
 	if (!query || query.length > 120 || /[\x00-\x1f\x7f]/.test(query)) fail("Use a short, plain-language image search (1–120 characters).");
 	const requested = Number(options.limit ?? 4);
 	const limit = Number.isFinite(requested) ? Math.max(1, Math.min(5, Math.floor(requested))) : 4;
-	const data = await apiQuery({
-		generator: "search", gsrsearch: query, gsrnamespace: "6", gsrlimit: String(Math.max(10, limit * 3)),
-		prop: "imageinfo", iiprop: "url|size|mime|sha1|extmetadata|thumbmime", iiurlwidth: "320",
-	}, options.fetchImpl ?? fetch);
-	const pages = Array.isArray(data?.query?.pages) ? data.query.pages : [];
-	return pages.sort((a: any, b: any) => (a.index ?? Infinity) - (b.index ?? Infinity))
-		.map(candidateOf).filter((c: CommonsCandidate | null): c is CommonsCandidate => !!c).slice(0, limit);
+	const fetchImpl = options.fetchImpl ?? fetch;
+	const runSearch = async (terms: string): Promise<CommonsCandidate[]> => {
+		const data = await apiQuery({
+			generator: "search", gsrsearch: terms, gsrnamespace: "6", gsrlimit: String(Math.max(10, limit * 3)),
+			prop: "imageinfo", iiprop: "url|size|mime|sha1|extmetadata|thumbmime", iiurlwidth: "320",
+		}, fetchImpl);
+		const pages = Array.isArray(data?.query?.pages) ? data.query.pages : [];
+		return pages.sort((a: any, b: any) => (a.index ?? Infinity) - (b.index ?? Infinity))
+			.map(candidateOf).filter((c: CommonsCandidate | null): c is CommonsCandidate => !!c).slice(0, limit);
+	};
+	const candidates = await runSearch(query);
+	if (candidates.length > 0) return candidates;
+	const broaderQuery = shorterSubjectQuery(query);
+	return broaderQuery ? runSearch(broaderQuery) : candidates;
 }
 
 function sniffMime(bytes: Buffer): string | null {
