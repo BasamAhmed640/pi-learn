@@ -14,12 +14,14 @@ import {
 	formatDate,
 	formatDateTime,
 	hideMermaidBlocks,
+	lessonPresentationText,
 	pickDependencyMap,
 	pickMostRecent,
 	readFrontmatter,
 	sanitizeNoteName,
 	sessionListEntry,
 	splitFrontmatter,
+	stripInjectedSkillBlocks,
 	summarizeNote,
 	transcriptTail,
 	updateFrontmatter,
@@ -47,6 +49,60 @@ test("sanitizeNoteName strips Obsidian-unsafe characters, collapses spaces, caps
 	const long = sanitizeNoteName("word ".repeat(40));
 	assert.ok(long.length <= 80, `length ${long.length}`);
 	assert.ok(!long.endsWith(" "));
+});
+
+test("lesson presentation removes tagged reasoning and short operational status while keeping teaching", () => {
+	const source = [
+		"I'll start by mapping where your understanding sits and kick off background research.",
+		"",
+		"<think>Private chain of thought must not enter the note.</think>",
+		"",
+		"### Why the rail droops",
+		"The path has inductance, so $V=L\\,di/dt$. A nearby capacitor supplies charge before current can arrive from the board.",
+		"",
+		"```mermaid",
+		"flowchart LR",
+		"  Board --> Package --> Die",
+		"```",
+		"",
+		"Research is back. Let me extract the agent transcript.",
+		"",
+		"The package path is shorter, but it still has inductance.",
+	].join("\n");
+	const actual = lessonPresentationText(source);
+	assert.ok(!actual.includes("Private chain"));
+	assert.ok(!actual.includes("kick off background"));
+	assert.ok(!actual.includes("agent transcript"));
+	for (const kept of ["### Why the rail droops", "$V=L\\,di/dt$", "flowchart LR", "The package path is shorter"]) assert.ok(actual.includes(kept));
+});
+
+test("lesson presentation keeps uncertain or mixed paragraphs and code fences", () => {
+	const source = "I'll show the result in a diagram:\n```mermaid\nflowchart LR\nA --> B\n```\n\nI need to explain why the extra inductance matters.";
+	assert.equal(lessonPresentationText(source), source);
+	assert.equal(lessonPresentationText("<analysis>internal</analysis>\n\nVisible answer."), "Visible answer.");
+	const indented = "```mermaid\nflowchart LR\n  A --> B\n\n  B --> C\n```";
+	assert.equal(lessonPresentationText(indented), indented, "blank lines inside diagrams keep their node indentation");
+	const xml = "```xml\n<analysis>Keep this field for audit.</analysis>\n```";
+	assert.equal(lessonPresentationText(xml), xml, "tagged XML in a code example is teaching content");
+	assert.equal(lessonPresentationText("A literal <analysis> token is part of this format.\n\nThe rest of the explanation."), "A literal <analysis> token is part of this format.\n\nThe rest of the explanation.");
+	const indentedCode = "A code example:\n\n    if x:\n        print(x)\n\nIt prints x.";
+	assert.equal(lessonPresentationText(indentedCode), indentedCode, "four-space Markdown code keeps its indentation");
+	for (const derivation of [
+		"I will check whether a path of 2 nH can supply 100 mA within 5 ns.",
+		"Let me inspect the underside: the solder balls form a grid around the die.",
+	]) assert.equal(lessonPresentationText(derivation), derivation);
+	assert.equal(
+		lessonPresentationText("Research is back. A BGA package has solder balls, not flat LGA lands, on its underside."),
+		"A BGA package has solder balls, not flat LGA lands, on its underside.",
+	);
+});
+
+test("injected skill text is omitted without deleting the learner's fenced XML example", () => {
+	const input = "Explain this format:\n\n```xml\n<skill name=\"example\">Keep this example.</skill>\n```\n\n<skill name=\"teach\">Injected skill instructions.</skill>";
+	const actual = stripInjectedSkillBlocks(input);
+	assert.ok(actual.includes("<skill name=\"example\">Keep this example.</skill>"));
+	assert.ok(!actual.includes("Injected skill instructions."));
+	assert.ok(actual.startsWith("Explain this format:"));
 });
 
 // ─── frontmatter ─────────────────────────────────────────────────────────────
@@ -236,7 +292,7 @@ test("index table: wikilinks, newest first, excludes itself and non-learning not
 
 // ─── mermaid ─────────────────────────────────────────────────────────────────
 
-test("invalid mermaid blocks are replaced by the warning + the source hidden in %% comments", () => {
+test("invalid mermaid blocks are hidden in %% comments without reader-facing validator chatter", () => {
 	const good = "```mermaid\nflowchart LR\n  A --> B\n```";
 	const bad = "```mermaid\nflowchart LR\n  A -->\n```";
 	const text = `Intro\n\n${good}\n\nMiddle\n\n${bad}\n\nEnd`;
@@ -244,7 +300,8 @@ test("invalid mermaid blocks are replaced by the warning + the source hidden in 
 	assert.equal(fences.length, 2);
 	assert.equal(fences[1].source, "flowchart LR\n  A -->");
 	const out = hideMermaidBlocks(text, [fences[1]]);
-	assert.equal(out, `Intro\n\n${good}\n\nMiddle\n\n${HIDDEN_DIAGRAM_CALLOUT}\n\n%%\n${bad}\n%%\n\nEnd`);
+	assert.equal(out, `Intro\n\n${good}\n\nMiddle\n\n%%\n${bad}\n%%\n\nEnd`);
+	assert.ok(!out.includes(HIDDEN_DIAGRAM_CALLOUT));
 	const after = findMermaidFences(out);
 	assert.equal(after.length, 2);
 	assert.equal(after[0].hidden, false);

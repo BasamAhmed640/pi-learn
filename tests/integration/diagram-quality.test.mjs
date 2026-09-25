@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { after, test } from "node:test";
-import { HIDDEN_DIAGRAM_CALLOUT } from "../../extensions/lib/learn-notes.ts";
+import { HIDDEN_DIAGRAM_CALLOUT, findMermaidFences } from "../../extensions/lib/learn-notes.ts";
 import { diagramHash } from "../../extensions/lib/diagram-quality.ts";
 import { createSession } from "../fixtures/md-log/session.mjs";
 import { importPiLoader, repoRoot } from "../helpers/pi.mjs";
@@ -226,7 +226,8 @@ test("note backfill uses the latest saved quality verdict for an identical diagr
 		const note = join(h.dir, "latest.md");
 		await startNewNote(h, "latest");
 		const written = readFileSync(note, "utf8");
-		assert.equal(written.includes(HIDDEN_DIAGRAM_CALLOUT), shouldHide, `latest status: ${statuses.at(-1)}`);
+		assert.equal(findMermaidFences(written).some((f) => f.hidden), shouldHide, `latest status: ${statuses.at(-1)}`);
+		assert.ok(!written.includes(HIDDEN_DIAGRAM_CALLOUT));
 	}
 });
 
@@ -246,7 +247,8 @@ test("Obsidian note hides a rejected diagram but shows an accepted repair, witho
 	await h.assistant(goodDiagram, ["shown-quiz"]);
 	assert.equal(await h.quiz("shown-quiz"), undefined);
 	const text = readFileSync(note, "utf8");
-	assert.ok(text.includes(HIDDEN_DIAGRAM_CALLOUT), "rejected diagram has a visible explanation");
+	assert.ok(!text.includes(HIDDEN_DIAGRAM_CALLOUT), "rejected draft produces no visible validator status");
+	assert.equal(findMermaidFences(text).filter((f) => f.hidden).length, 1);
 	assert.ok(text.includes(`%%\n${bad.text.slice(bad.text.indexOf("```mermaid"))}\n%%`), "rejected source is commented out");
 	assert.ok(text.includes(goodDiagram.slice(goodDiagram.indexOf("```mermaid"))), "accepted diagram renders normally");
 	assert.ok(!text.includes("> [!question] Quiz"), "blocked quiz did not reach the note");
@@ -263,7 +265,8 @@ test("a rejected diagram is still hidden when a new note backfills the session l
 	const note = join(h.dir, "later.md");
 	await startNewNote(h, "later");
 	const text = readFileSync(note, "utf8");
-	assert.ok(text.includes(HIDDEN_DIAGRAM_CALLOUT));
+	assert.ok(!text.includes(HIDDEN_DIAGRAM_CALLOUT));
+	assert.equal(findMermaidFences(text).filter((f) => f.hidden).length, 1);
 	assert.ok(text.includes(`%%\n${bad.text.slice(bad.text.indexOf("```mermaid"))}\n%%`));
 });
 

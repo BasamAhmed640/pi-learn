@@ -8,7 +8,7 @@
  *
  * Captures only reading-relevant content:
  *   - user prompts
- *   - assistant text (lesson prose)
+ *   - reader-facing assistant explanation (plain Markdown)
  *   - quiz / ask_user_question Q&A blocks
  * Other tools (bash, read, write, edit, ...) are omitted.
  *
@@ -48,10 +48,12 @@ import {
 	formatDate,
 	formatDateTime,
 	hideMermaidBlocks,
+	lessonPresentationText,
 	pickMostRecent,
 	readFrontmatter,
 	sanitizeNoteName,
 	sessionListEntry,
+	stripInjectedSkillBlocks,
 	summarizeNote,
 	updateFrontmatter,
 	upsertSessionSection,
@@ -322,25 +324,11 @@ export default function obsidianLink(pi: ExtensionAPI) {
 	}
 
 	function userBlock(text: string): string {
-		return `> [!quote] YOU\n\n${text}`;
-	}
-
-	// Skill declarations (`<skill name="..." ...> ...whole SKILL.md... </skill>`)
-	// are system-injected context, not user prose. Replace each with a compact
-	// callout noting the skill was loaded, so the log keeps the signal without
-	// the noise. Runs on already-trimmed text.
-	function stripSkillBlocks(text: string): string {
-		return text.replace(
-			/<skill\b([^>]*)>[\s\S]*?<\/skill>/g,
-			(_match, attrs: string) => {
-				const name = /name="([^"]+)"/.exec(attrs)?.[1];
-				return `> [!note] SKILL loaded: ${name ?? "(unknown)"}`;
-			},
-		);
+		return callout("quote", "Learner", text.split("\n"));
 	}
 
 	function assistantBlock(text: string): string {
-		return `> [!abstract] PI\n\n${text}`;
+		return text;
 	}
 
 	function optionsList(options: Array<{ label: string }>): string[] {
@@ -390,7 +378,11 @@ export default function obsidianLink(pi: ExtensionAPI) {
 		}
 
 		const correctIndices: number[] = details?.correctIndices || [];
-		const correctStr = correctIndices.map((i) => `${i}`).join(", ");
+		const shown: Array<{ index: number; label: string }> = Array.isArray(details?.options) ? details.options : [];
+		const correctStr = correctIndices.map((i) => {
+			const label = shown.find((option) => option.index === i)?.label;
+			return label ? `${i}. ${label}` : `${i}`;
+		}).join("; ");
 		body.push(`Correct answer: ${correctStr}`);
 
 		// Optional free-text note the user typed in the always-present note field.
@@ -457,7 +449,7 @@ export default function obsidianLink(pi: ExtensionAPI) {
 		if (!msg || !("role" in msg)) return;
 
 		if (msg.role === "user") {
-			const trimmed = stripSkillBlocks(userText(msg).trim());
+			const trimmed = stripInjectedSkillBlocks(userText(msg).trim());
 			if (!trimmed) return;
 			await withLock(() => appendToFile(userBlock(trimmed)));
 			return;
@@ -466,8 +458,12 @@ export default function obsidianLink(pi: ExtensionAPI) {
 		if (msg.role === "assistant") {
 			const text = assistantText(msg);
 			if (!text) return;
-			// Validate inside the lock so a slow validator can't reorder blocks.
-			await withLock(async () => appendToFile(assistantBlock(await noteSafe(text, ctx))));
+			// Quality review is keyed by the original text. Validate before
+			// presentation cleanup so a rejected diagram cannot escape its verdict.
+			await withLock(async () => {
+				const presented = lessonPresentationText(await noteSafe(text, ctx));
+				if (presented) appendToFile(assistantBlock(presented));
+			});
 			return;
 		}
 		// toolResult messages are handled by the tool_result event (for QA tools).
@@ -499,6 +495,15 @@ export default function obsidianLink(pi: ExtensionAPI) {
 	// for the same call. (A quiz blocked at tool_call never executes, so it
 	// never gets a question block.)
 	const loggedQuizQuestion = new Set<string>();
+	async function logQuizQuestion(toolCallId: string, input: any, shown: Array<{ index: number; label: string }> | undefined): Promise<boolean> {
+		if (loggedQuizQuestion.has(toolCallId)) return true;
+		if (!Array.isArray(shown) || shown.length === 0 || typeof input?.question !== "string" || !input.question.trim()) return false;
+		loggedQuizQuestion.add(toolCallId);
+		const context: string | undefined = input.details?.trim() || undefined;
+		const block = questionCallout("Quiz", input.question, context, shown.map((o) => ({ label: o.label })));
+		await withLock(() => appendToFile(block));
+		return true;
+	}
 	pi.on("tool_execution_update", async (event, _ctx) => {
 		if (!logFile) return;
 		const toolName = (event as any).toolName;
@@ -507,17 +512,11 @@ export default function obsidianLink(pi: ExtensionAPI) {
 			return;
 		}
 		if (toolName !== "quiz") return;
-		const toolCallId = (event as any).toolCallId;
-		if (loggedQuizQuestion.has(toolCallId)) return;
-		const shuffled = (event as any).partialResult?.details?.options as Array<{ index: number; label: string }> | undefined;
-		if (!shuffled || shuffled.length === 0) return;
-		loggedQuizQuestion.add(toolCallId);
-		const input = (event as any).args || {};
-		const question: string = input.question || "";
-		const context: string | undefined = input.details?.trim() || undefined;
-		const options = shuffled.map((o) => ({ label: o.label }));
-		const block = questionCallout("Quiz", question, context, options);
-		await withLock(() => appendToFile(block));
+		await logQuizQuestion(
+			(event as any).toolCallId,
+			(event as any).args || {},
+			(event as any).partialResult?.details?.options,
+		);
 	});
 
 	pi.on("tool_result", async (event, _ctx) => {
@@ -528,6 +527,11 @@ export default function obsidianLink(pi: ExtensionAPI) {
 		if (isBlockedResult((event as any).isError, details)) return;
 		if (toolName === "ask_user_question") {
 			await logAskQuestion((event as any).toolCallId, (event as any).input || {});
+		} else if (!loggedQuizQuestion.has((event as any).toolCallId)) {
+			// An unavailable or cancelled quiz may stop before it was shown. Do
+			// not leave an answer callout without its question in the note. For a
+			// completed quiz, the structured result carries the true shown order.
+			if (details.status !== "answered" || !await logQuizQuestion((event as any).toolCallId, (event as any).input || details, details.options)) return;
 		}
 		const block = toolName === "quiz"
 			? answerCalloutQuiz(details)
@@ -577,7 +581,7 @@ export default function obsidianLink(pi: ExtensionAPI) {
 			count++;
 
 			if (msg.role === "user") {
-				const trimmed = stripSkillBlocks(userText(msg).trim());
+				const trimmed = stripInjectedSkillBlocks(userText(msg).trim());
 				if (trimmed) blocks.push(userBlock(trimmed));
 				continue;
 			}
@@ -590,7 +594,10 @@ export default function obsidianLink(pi: ExtensionAPI) {
 					}
 				}
 				const text = assistantText(msg);
-				if (text) blocks.push(assistantBlock(await noteSafe(text, ctx)));
+				if (text) {
+					const presented = lessonPresentationText(await noteSafe(text, ctx));
+					if (presented) blocks.push(assistantBlock(presented));
+				}
 				continue;
 			}
 
@@ -599,20 +606,26 @@ export default function obsidianLink(pi: ExtensionAPI) {
 				// Blocked call: the learner never saw it — no question, no answer.
 				if (isBlockedResult(msg.isError, msg.details)) continue;
 				const tc = toolCallArgs.get(msg.toolCallId);
+				if (!tc || tc.name !== msg.toolName || typeof tc.args?.question !== "string" || !tc.args.question.trim()) continue;
+				// Without displayed options, a cancelled/unavailable result may have
+				// stopped before the UI opened. Older answered results did not always
+				// persist options: keep their question, but never invent a shuffled order.
+				const hasDisplayedOptions = Array.isArray(msg.details.options) && msg.details.options.length > 0;
+				if (msg.toolName === "quiz" && !hasDisplayedOptions && msg.details.status !== "answered") continue;
 				// Question block. For quiz, use the persisted result's `details.options`
 				// — the TRUE post-shuffle display order the user actually saw — rather
 				// than the original tool-call args, which are the pre-shuffle author
 				// order and can mismatch what's on screen. ask_user_question never
 				// shuffles, so its tool-call args are already the true order.
-				if (tc) {
-					const a = tc.args || {};
+				{
+					const a = tc.args;
 					const label = tc.name === "quiz" ? "Quiz" : "Question";
 					const shuffled = msg.toolName === "quiz"
 						? (msg.details?.options as Array<{ index: number; label: string }> | undefined)
 						: undefined;
 					const options = shuffled && shuffled.length > 0
 						? shuffled.map((o) => ({ label: o.label }))
-						: (Array.isArray(a.options) ? a.options : []);
+						: msg.toolName === "quiz" ? [] : (Array.isArray(a.options) ? a.options : []);
 					blocks.push(questionCallout(label, a.question || "", a.details?.trim() || undefined, options));
 				}
 				if (msg.toolName === "quiz") {

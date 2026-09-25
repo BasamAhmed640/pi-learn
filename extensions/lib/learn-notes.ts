@@ -26,6 +26,7 @@
 export const INDEX_BASENAME = "Learn Index";
 export const INDEX_FILENAME = `${INDEX_BASENAME}.md`;
 
+/** Legacy warning text found in older notes; new notes hide drafts silently. */
 export const HIDDEN_DIAGRAM_CALLOUT =
 	"> [!warning] Diagram hidden — it needs a redraw (the tutor was asked to correct it)";
 
@@ -499,14 +500,14 @@ export function findMermaidFences(markdown: string): MermaidFence[] {
 }
 
 /**
- * Replace each given fence with the warning callout followed by the original
- * block wrapped in an Obsidian `%%` comment (source kept, not rendered).
+ * Replace each rejected fence with an Obsidian `%%` comment. The source stays
+ * available for audit and resume parsing, but the draft is invisible to readers.
  */
 export function hideMermaidBlocks(markdown: string, blocks: MermaidFence[]): string {
 	let out = markdown;
 	for (const b of [...blocks].sort((a, z) => z.start - a.start)) {
 		const original = out.slice(b.start, b.end);
-		out = `${out.slice(0, b.start)}${HIDDEN_DIAGRAM_CALLOUT}\n\n%%\n${original}\n%%${out.slice(b.end)}`;
+		out = `${out.slice(0, b.start)}%%\n${original}\n%%${out.slice(b.end)}`;
 	}
 	return out;
 }
@@ -604,6 +605,85 @@ export function transcriptTail(body: string, maxChars = 12000): { text: string; 
 	return { text: trimmed.slice(cut), truncated: true };
 }
 
+function protectFencedCode(text: string): { text: string; restore: (value: string) => string } {
+	const normalized = text.replace(/\r\n/g, "\n");
+	const fences: string[] = [];
+	const segments: string[] = [];
+	let lines: string[] = [];
+	let fence: { char: string; length: number } | null = null;
+	function flush(code: boolean): void {
+		if (lines.length === 0) return;
+		const content = lines.join("\n");
+		segments.push(code ? `\uE000PI_LEARN_FENCE_${fences.push(content) - 1}\uE001` : content);
+		lines = [];
+	}
+	for (const line of normalized.split("\n")) {
+		if (!fence) {
+			const open = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+			if (open) {
+				flush(false);
+				fence = { char: open[1][0], length: open[1].length };
+			}
+			lines.push(line);
+			continue;
+		}
+		lines.push(line);
+		const close = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
+		if (close && close[1][0] === fence.char && close[1].length >= fence.length) {
+			flush(true);
+			fence = null;
+		}
+	}
+	flush(fence !== null);
+	return {
+		text: segments.join("\n"),
+		restore: (value: string) => value.replace(/\uE000PI_LEARN_FENCE_(\d+)\uE001/g, (_match, index: string) => fences[Number(index)] ?? ""),
+	};
+}
+
+function trimOuterBlankLines(text: string): string {
+	return text.replace(/^(?:[ \t]*\n)+/, "").replace(/(?:\n[ \t]*)+$/, "");
+}
+
+/** Remove injected skill wrappers while preserving a learner's fenced XML examples. */
+export function stripInjectedSkillBlocks(text: string): string {
+	const fenced = protectFencedCode(text);
+	return trimOuterBlankLines(fenced.restore(fenced.text.replace(/<skill\b[^>]*>[\s\S]*?<\/skill>/gi, "")));
+}
+
+/**
+ * Keep reader-facing explanation, while dropping clearly internal narration.
+ * Pi's native `thinking` blocks are excluded by the caller. Some models also
+ * emit tagged reasoning inside a text block, or short status paragraphs before
+ * a tool call. Only those unmistakable forms are removed here: an unfamiliar
+ * paragraph is kept so a real explanation cannot silently disappear.
+ */
+export function lessonPresentationText(text: string): string {
+	// A lesson may legitimately show XML such as `<analysis>` in a code sample.
+	const fenced = protectFencedCode(text);
+	const withoutReasoning = fenced.text
+		.replace(/<(think|thinking|analysis|reasoning|scratchpad)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "");
+	const progress = [
+		/^(?:i['’]ll|i will|let me)\s+(?:start by\s+)?(?:map|mapping|probe|assess)\b.*\b(?:your understanding|your knowledge|where you|background research)\b/i,
+		/^(?:i['’]ll|i will|let me)\s+(?:kick off|extract|pull|read|fetch)\b.*\b(?:background research|agent(?:['’]s)? transcript|research results|source results)\b/i,
+		/^(?:the\s+)?research\s+(?:has\s+)?(?:landed|is back|came back)[.!?]?$/i,
+		/^(?:one|two|three|four|five|\d+)\s+for\s+(?:one|two|three|four|five|\d+)\b.*\b(?:push|jump|probe|plan|research|escalat)/i,
+		/^(?:good|great|perfect)\s*[—,!–-].*\b(?:probe|escalat|two more|next question|plan|research|data point)\b/i,
+	];
+	const paragraphs = withoutReasoning.split(/\n[ \t]*\n+/);
+	const kept: string[] = [];
+	for (const paragraph of paragraphs) {
+		// A status sentence may share a paragraph with a useful observation.
+		// Remove only that sentence; never discard the observation after it.
+		const candidate = paragraph.replace(/^(?:the\s+)?research\s+(?:has\s+)?(?:landed|is back|came back)[.!?]\s+(?=\S)/i, "");
+		const trimmed = candidate.trim();
+		if (!trimmed) continue;
+		if (!candidate.includes("\uE000PI_LEARN_FENCE_") && trimmed.length <= 400 && progress.some((pattern) => pattern.test(trimmed))) continue;
+		kept.push(candidate);
+	}
+	return trimOuterBlankLines(fenced.restore(kept.join("\n\n")));
+}
+
 export interface ResumeBriefOptions {
 	/** Note basename without `.md`. */
 	noteName: string;
@@ -652,7 +732,7 @@ export function buildResumeBrief(noteText: string, opts: ResumeBriefOptions): st
 	if (quizzes.length === 0) out.push("(no quizzes yet)");
 	quizzes.forEach((q, i) => out.push(`${i + 1}. [${q.verdict}] ${oneLine(q.question)}`));
 	out.push("");
-	out.push(`## Transcript tail${tail.truncated ? " (earlier part omitted)" : ""}`);
+	out.push(`## Recent note content${tail.truncated ? " (earlier part omitted)" : ""}`);
 	out.push("<note-tail>");
 	out.push(tail.text);
 	out.push("</note-tail>");

@@ -7,11 +7,12 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { importPiLoader, repoRoot } from "../helpers/pi.mjs";
-import { formatDate, readFrontmatter, splitFrontmatter, findSessionSections, HIDDEN_DIAGRAM_CALLOUT } from "../../extensions/lib/learn-notes.ts";
+import { formatDate, readFrontmatter, splitFrontmatter, findMermaidFences, findSessionSections, HIDDEN_DIAGRAM_CALLOUT } from "../../extensions/lib/learn-notes.ts";
 import {
 	ASK_ARGS,
 	INVALID_MERMAID,
 	QUIZ_ARGS,
+	QUIZ_DETAILS,
 	VALID_MERMAID,
 	createSession,
 	fillLesson,
@@ -163,7 +164,7 @@ async function waitFor(predicate, ms = 2000) {
 
 // ─── baseline formats vs the original md-log ─────────────────────────────────
 
-test("live logging: block formats are byte-identical to the original md-log", async () => {
+test("live logging: lesson prose reads as Markdown while question callouts stay visual", async () => {
 	const dir = newDir("live");
 	const origFile = join(dir, "orig.md");
 	const newFile = join(dir, "new.md");
@@ -184,7 +185,11 @@ test("live logging: block formats are byte-identical to the original md-log", as
 	const o = read(origFile);
 	const n = read(newFile);
 	assert.ok(o.includes("> [!question] Quiz\n> Why does binary search need a sorted array?"), "sanity: original logged the quiz");
-	assert.equal(afterMarker(n, s2.sessionId), `\n\n${o}`, "same blocks, same separators");
+	const expected = o
+		.replace("> [!quote] YOU\n\nTeach me binary search\n\n> [!note] SKILL loaded: teach", "> [!quote] Learner\n> Teach me binary search")
+		.replaceAll("> [!abstract] PI\n\n", "")
+		.replace("> Correct answer: 2\n", "> Correct answer: 2. To discard half\n");
+	assert.equal(afterMarker(n, s2.sessionId), `\n\n${expected}`, "only prose presentation and answer clarity change");
 	assert.ok(!n.includes("SECRET-EXPLANATION: one comparison") || n.indexOf("SECRET") > n.indexOf("Quiz — correct"), "explanation only after answering");
 	assert.ok(!n.includes("BRIEF-SHOULD-NOT-BE-LOGGED"));
 	// true shuffled order, logged once despite two updates
@@ -192,7 +197,7 @@ test("live logging: block formats are byte-identical to the original md-log", as
 	assert.ok(n.includes("> 1. It does not\n> 2. To discard half\n> 3. To use less memory"));
 });
 
-test("backfill: block formats are byte-identical to the original md-log", async () => {
+test("backfill uses the same book-style prose and question callouts as live logging", async () => {
 	const dir = newDir("backfill");
 	const origFile = join(dir, "orig.md");
 	const newFile = join(dir, "new.md");
@@ -208,9 +213,109 @@ test("backfill: block formats are byte-identical to the original md-log", async 
 	const o = read(origFile);
 	const n = read(newFile);
 	assert.ok(o.includes("> [!note] SKILL loaded: teach"));
-	assert.equal(afterMarker(n, s2.sessionId), `\n${o}`);
+	const expected = o
+		.replace("> [!quote] YOU\n\nTeach me binary search\n\n> [!note] SKILL loaded: teach", "> [!quote] Learner\n> Teach me binary search")
+		.replaceAll("> [!abstract] PI\n\n", "")
+		.replace("> Correct answer: 2\n", "> Correct answer: 2. To discard half\n");
+	assert.equal(afterMarker(n, s2.sessionId), `\n${expected}`);
 	assert.equal(ctx2.ui.notices.at(-1).level, "info", "success notify replaced by info");
 	assert.match(ctx2.ui.notices.at(-1).message, /Learning note: .*new\.md → Session 1 \(\d{4}-\d{2}-\d{2}\)/);
+});
+
+test("live and backfilled notes omit reasoning and tool-status narration but keep the explanation", async () => {
+	const dir = newDir("presentation");
+	const lesson = [
+		"I'll start by mapping your understanding and kick off background research.",
+		"",
+		"<analysis>Need to call a tool and inspect its result.</analysis>",
+		"",
+		"### Why the capacitor sits near the die",
+		"The package path has inductance. For a current step, $V=L\\,di/dt$, so nearby capacitance responds first.",
+		"",
+		"The die sees a shorter current loop than the board can provide.",
+	].join("\n");
+	const msg = { role: "assistant", content: [{ type: "thinking", thinking: "private thought" }, { type: "text", text: lesson }] };
+	const liveFile = join(dir, "live.md");
+	writeFileSync(liveFile, "");
+	const liveSession = createSession("12341234-presentation-live");
+	const live = await load(realExtension, liveSession, dir);
+	const liveCtx = makeCtx(liveSession, dir);
+	await open(live.ext, liveFile, liveCtx);
+	await emit(live.ext, "message_end", { message: msg }, liveCtx);
+	const backfillSession = createSession("56785678-presentation-backfill");
+	backfillSession.message(msg);
+	const backfill = await load(realExtension, backfillSession, dir);
+	await newTopic(backfill.ext, dir, "backfilled", makeCtx(backfillSession, dir));
+	for (const note of [read(liveFile), read(join(dir, "backfilled.md"))]) {
+		assert.ok(note.includes("### Why the capacitor sits near the die"));
+		assert.ok(note.includes("$V=L\\,di/dt$"));
+		assert.ok(note.includes("The die sees a shorter current loop"));
+		for (const leaked of ["background research", "Need to call", "private thought", "> [!abstract] PI"]) assert.ok(!note.includes(leaked), leaked);
+	}
+});
+
+test("presentation cleanup cannot bypass a diagram's semantic rejection", async () => {
+	const dir = newDir("quality-cache");
+	const file = join(dir, "diagram.md");
+	writeFileSync(file, "");
+	const session = createSession("aaaa5555-quality-cache");
+	const source = findMermaidFences(VALID_MERMAID)[0].source;
+	const raw = `Research is back.\n\n### The data path\n\n${VALID_MERMAID}`;
+	globalThis.__piLearnDiagramQuality = {
+		sessionId: session.sessionId,
+		byText: new Map([[raw, Promise.resolve({ issues: [{ source }] })]]),
+		bySource: new Map(),
+	};
+	try {
+		const { ext } = await load(stubExtension, session, dir);
+		const ctx = makeCtx(session, dir);
+		await open(ext, file, ctx);
+		await emit(ext, "message_end", { message: { role: "assistant", content: [{ type: "text", text: raw }] } }, ctx);
+		const note = read(file);
+		assert.ok(!note.includes("Research is back"));
+		assert.ok(note.includes("### The data path"));
+		assert.ok(!note.includes(HIDDEN_DIAGRAM_CALLOUT), "validator status stays out of the reader's note");
+		assert.ok(note.includes(`%%\n${VALID_MERMAID}\n%%`), "the semantic verdict is applied before presentation cleanup");
+		assert.equal(findMermaidFences(note).filter((f) => !f.hidden).length, 0);
+	} finally {
+		delete globalThis.__piLearnDiagramQuality;
+	}
+});
+
+test("a quiz that fails before its question appears leaves no orphan callout", async () => {
+	const dir = newDir("quiz-unavailable");
+	const file = join(dir, "live.md");
+	writeFileSync(file, "");
+	const input = { question: "Why does it fail?", options: [{ label: "A" }, { label: "B" }] };
+	const unavailable = { status: "unavailable", message: "quiz needs two distinct answers" };
+	const liveSession = createSession("aaaabbbb-unavailable-live");
+	const live = await load(realExtension, liveSession, dir);
+	const liveCtx = makeCtx(liveSession, dir);
+	await open(live.ext, file, liveCtx);
+	await emit(live.ext, "tool_result", { toolName: "quiz", toolCallId: "never-shown", input, details: unavailable, isError: false }, liveCtx);
+	assert.ok(!read(file).includes("Quiz — unavailable"));
+	assert.ok(!read(file).includes("Why does it fail?"));
+	const answered = { ...QUIZ_DETAILS, question: input.question };
+	await emit(live.ext, "tool_result", { toolName: "quiz", toolCallId: "answered-without-update", input, details: answered, isError: false }, liveCtx);
+	assert.ok(read(file).includes("> [!question] Quiz\n> Why does it fail?"));
+	assert.ok(read(file).includes("> [!success] Quiz — correct"));
+	const backfillSession = createSession("ccccdddd-unavailable-backfill");
+	backfillSession.message({ role: "assistant", content: [{ type: "toolCall", id: "persisted-unavailable", name: "quiz", arguments: input }] });
+	backfillSession.message({ role: "toolResult", toolCallId: "persisted-unavailable", toolName: "quiz", details: unavailable, isError: false });
+	const backfill = await load(realExtension, backfillSession, dir);
+	await newTopic(backfill.ext, dir, "backfilled", makeCtx(backfillSession, dir));
+	const note = read(join(dir, "backfilled.md"));
+	assert.ok(!note.includes("Quiz — unavailable"));
+	assert.ok(!note.includes("Why does it fail?"));
+	const legacySession = createSession("eeeeffff-answered-legacy");
+	legacySession.message({ role: "assistant", content: [{ type: "toolCall", id: "legacy-answer", name: "quiz", arguments: QUIZ_ARGS }] });
+	legacySession.message({ role: "toolResult", toolCallId: "legacy-answer", toolName: "quiz", details: { ...QUIZ_DETAILS, options: undefined }, isError: false });
+	const legacy = await load(realExtension, legacySession, dir);
+	await newTopic(legacy.ext, dir, "legacy-answer", makeCtx(legacySession, dir));
+	const legacyNote = read(join(dir, "legacy-answer.md"));
+	assert.ok(legacyNote.includes("> [!question] Quiz\n> Why does binary search need a sorted array?"));
+	assert.ok(legacyNote.includes("> [!success] Quiz — correct"));
+	assert.ok(!legacyNote.includes("> 1. To discard half"), "old author order must not be presented as the shuffled order");
 });
 
 // ─── linking ─────────────────────────────────────────────────────────────────
@@ -260,7 +365,7 @@ test("/learn open keeps previous sessions and learner text byte-for-byte", async
 	const now = splitFrontmatter(after);
 	assert.ok(now.body.startsWith(before.body), "old sessions + learner text are a byte-for-byte prefix");
 	assert.ok(now.body.slice(before.body.length).startsWith(`\n## Session 2 (${today()})\n${marker(s.sessionId)}\n`));
-	assert.ok(!now.body.slice(before.body.length).includes("> [!quote] YOU"), "opening a note never imports the earlier Pi conversation");
+	assert.ok(!now.body.slice(before.body.length).includes("> [!quote] Learner"), "opening a note never imports the earlier Pi conversation");
 	assert.ok(!now.body.includes("Continues [[#"), "plain /learn open does not resume");
 	// frontmatter: unknown keys and order kept, own keys merged
 	assert.deepEqual(now.lines.slice(0, 4), ["aliases:", "  - BST basics", 'learn-topic: "Binary search trees"', "rating: 4"]);
@@ -334,9 +439,9 @@ test("invalid Mermaid is hidden in the note (live + backfill); valid Mermaid is 
 	const bf = await load(stubExtension, s2, dir);
 	const ctx2 = makeCtx(s2, dir);
 	await newTopic(bf.ext, dir, "backfill", ctx2);
-	const expected = `Here is the plan.\n\n${VALID_MERMAID}\n\nAnd a broken one:\n\n${HIDDEN_DIAGRAM_CALLOUT}\n\n%%\n${INVALID_MERMAID}\n%%\n\nDone.`;
+	const expected = `Here is the plan.\n\n${VALID_MERMAID}\n\nAnd a broken one:\n\n%%\n${INVALID_MERMAID}\n%%\n\nDone.`;
 	for (const text of [read(liveFile), read(bfFile)]) {
-		assert.ok(text.includes(`> [!abstract] PI\n\n${expected}`), text);
+		assert.ok(text.includes(expected), text);
 	}
 	assert.ok(globalThis.__stubMermaidCalls > 0, "validator module was imported dynamically");
 	// ensureLearnStyle: called on link, "customized" → exactly one warning per session
@@ -364,7 +469,7 @@ test("session_start restores the link; /learn close stops logging", async () => 
 	assert.equal(ctx.ui.status.get("learn-obsidian"), "🗒 note.md");
 	assert.equal(globalThis.__piLearn.linkedNote, file);
 	await emit(second.ext, "message_end", { type: "message_end", message: { role: "user", content: "after restart" } }, ctx);
-	assert.ok(read(file).endsWith("> [!quote] YOU\n\nafter restart\n"));
+	assert.ok(read(file).endsWith("> [!quote] Learner\n> after restart\n"));
 	await command(second.ext, "learn", "close", ctx);
 	assert.equal(ctx.ui.status.get("learn-obsidian"), undefined);
 	assert.equal(globalThis.__piLearn.linkedNote, null);
@@ -423,7 +528,7 @@ test("/learn creates the note + index, links it and starts teaching", async () =
 	assert.ok(!index.includes("[[Learn Index]]"));
 	// the teaching turn is logged live into the new section
 	await emit(ext, "message_end", { type: "message_end", message: { role: "user", content: "Teach me: How does TCP/IP work?" } }, ctx);
-	assert.ok(read(file).endsWith(`${marker(s.sessionId)}\n\n\n> [!quote] YOU\n\nTeach me: How does TCP/IP work?\n`));
+	assert.ok(read(file).endsWith(`${marker(s.sessionId)}\n\n\n> [!quote] Learner\n> Teach me: How does TCP/IP work?\n`));
 });
 
 test("/learn uses a personal notes directory when Pi is started outside the vault", async () => {
@@ -555,7 +660,7 @@ test("/learn-resume without args picks the latest note and continues in a fresh 
 	assert.equal(freshCtx.ui.status.get("learn-obsidian"), "🗒 Binary search trees.md");
 	// the new session keeps logging into the note
 	await emit(second.ext, "message_end", { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "Welcome back." }] } }, freshCtx);
-	assert.ok(read(newer).endsWith("> [!abstract] PI\n\nWelcome back.\n"));
+	assert.ok(read(newer).endsWith("Welcome back.\n"));
 	const index = read(join(notes, "Learn Index.md"));
 	const rows = index.split("\n").filter((l) => l.startsWith("| [["));
 	assert.equal(rows.length, 2, "only learning notes, not the index or plain notes");
