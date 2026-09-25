@@ -63,5 +63,6 @@ test("a valid quiz announces its displayed options without revealing the key", a
 test("question tools guide the tutor toward focused checks and purposeful learner choices", () => {
 	assert.match(quiz.promptGuidelines.join(" "), /concrete application or comparison/);
 	assert.match(quiz.promptGuidelines.join(" "), /two or three short sentences/);
+	assert.match(quiz.promptGuidelines.join(" "), /selected option and correct that specific misconception/);
 	assert.match(ask.promptGuidelines.join(" "), /goal, depth, pace, or direction/);
 });
