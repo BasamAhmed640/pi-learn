@@ -53,10 +53,15 @@ function resetGlobals() {
 	delete globalThis.__piLearn;
 }
 
-async function harness({ withNote = false, replies = [], session = createSession(`quality-${Math.random().toString(36).slice(2)}`), reset = true } = {}) {
+async function harness({ withNote = false, linked = true, replies = [], session = createSession(`quality-${Math.random().toString(36).slice(2)}`), reset = true } = {}) {
 	if (reset) resetGlobals();
 	const dir = mkdtempSync(join(root, "case-"));
 	if (withNote) mkdirSync(join(dir, ".obsidian"));
+	// The diagram-quality gate is a lesson feature: it only runs for a session linked to
+	// an Obsidian note, so every case here is a lesson unless it opts out.
+	if (linked && !session.entries.some((entry) => entry?.type === "custom" && entry.customType === "learn-link")) {
+		session.custom("learn-link", { file: join(dir, "Lesson.md") });
+	}
 	const runtime = createExtensionRuntime();
 	runtime.appendEntry = (customType, data) => session.custom(customType, data);
 	const paths = withNote ? [systemPath, obsidianLinkPath] : [systemPath];
@@ -121,6 +126,15 @@ async function startNewNote(h, topic) {
 		else process.env.PI_LEARN_NOTES_DIR = previous;
 	}
 }
+
+test("an unlinked session is never gated or reviewed: plain chat stays plain", async () => {
+	const h = await harness({ linked: false, replies: [issue(wrongDiagram(90).line)] });
+	await h.emit("agent_start");
+	await h.assistant(wrongDiagram(90).text, ["plain-chat-question"]);
+	assert.equal(await h.quiz("plain-chat-question"), undefined);
+	assert.equal(await h.emit("agent_before_settle", { entries: [], continue: false, outcome: "completed", context: {} }), undefined);
+	assert.equal(h.calls.length, 0, "no diagram review is spent outside a lesson");
+});
 
 test("two isolated mapping pairs are rejected without a model review", async () => {
 	const h = await harness();

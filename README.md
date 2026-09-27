@@ -105,6 +105,22 @@ remains in place.
 - `styles/pi-learn.css`: the Obsidian snippet (centered callouts, equations, diagrams)
 - `extensions/visual-tools/`, `agents/`: Amos's maker subagents (need pi-interactive-subagents, which runs in tmux)
 
+### Lesson gating — learn-only behaviour stays learn-only
+
+Everything that turns a session into a *lesson* is gated on a linked note (the `learn-link` session entry
+`/learn` writes). A plain Pi session is never taught to, gated, or slowed down:
+
+- `extensions/system-diagrams.ts` injects `system_diagrams`, `lesson_presentation` and `lesson_skills`, and
+  starts the Mermaid worker, the quiz gate and the diagram quality reviews, only while a lesson is linked.
+- `skills/teach/` and `skills/visualize/` set `disable-model-invocation: true`, so they never appear in the
+  model's skill list outside a lesson; a linked lesson gets both `SKILL.md` paths in `lesson_skills` instead.
+  `/skill:teach` and `/skill:visualize` still work when asked for explicitly.
+- The question tools (`quiz`, `ask_user_question`) and the Commons tools stay registered everywhere: that is
+  the calling surface a user starts a lesson with, not the teaching method.
+
+`tests/integration/system-diagrams.test.mjs` guards both sides: an unlinked session must stay plain, and a
+linked lesson must still receive the policy, the presentation rules and the skill paths.
+
 ## Tests
 
 ```bash

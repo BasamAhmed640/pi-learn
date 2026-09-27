@@ -34,7 +34,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { describeMermaid, extractMermaidBlocks, validateMermaid } from "./lib/mermaid.ts";
 import { findMermaidFences } from "./lib/learn-notes.ts";
 import { linkedNoteFromEntries } from "./lib/learn-link-state.ts";
-import { LESSON_PRESENTATION_POLICY } from "./lib/lesson-presentation.ts";
+import { LESSON_PRESENTATION_POLICY, LESSON_SKILLS_POLICY } from "./lib/lesson-presentation.ts";
 import {
 	buildQualityReviewInput,
 	diagramHash,
@@ -67,6 +67,7 @@ const MAX_QUALITY_REVIEWS_PER_RUN = 8;
 const MAX_QUALITY_REPAIRS_PER_RUN = 2;
 const CLASSIFIER_TIMEOUT_MS = 30_000;
 const PROMPT_SECTION = "system_diagrams";
+const LESSON_SKILLS_SECTION = "lesson_skills";
 
 interface MessageRecord {
 	text: string;
@@ -166,6 +167,23 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 
 	function linkedNote(ctx: any): string | null {
 		return linkedNoteFromEntries(ctx.sessionManager?.getEntries?.() ?? []);
+	}
+
+	//
+	//	Everything below is lesson-only. A session without a linked Obsidian note is
+	//	plain chat: no policy, no quiz gate, no classifier, no Mermaid worker. The
+	//	extension stays installed so /learn can turn a session into a lesson at any
+	//	point, and from that message on the lesson machinery is live. This mirrors how
+	//	pi-scholar keeps its modes dormant until a Scholar command selects one.
+	//
+
+	let mermaidWarm = false;
+
+	/** Start the Mermaid worker once, when a lesson actually needs it. */
+	function warmMermaidWorker(): void {
+		if (mermaidWarm) return;
+		mermaidWarm = true;
+		void validateMermaid("flowchart LR\n  a --> b").catch(() => undefined);
 	}
 
 	function rebuildDrawn(ctx: any): void {
@@ -437,17 +455,17 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 		shared = { sessionId: sessionIdOf(ctx), byText: new Map(), bySource: new Map() };
 		g.__piLearnDiagramQuality = shared;
 		rebuildDrawn(ctx);
-		// Warm the Mermaid worker so the first real diagram doesn't pay the cold start.
-		void validateMermaid("flowchart LR\n  a --> b").catch(() => undefined);
+		if (linkedNote(ctx)) warmMermaidWorker();
 	});
 
 	pi.on("before_agent_start", async (event, ctx) => {
 		// /learn and /learn-resume can link a note after session_start. The note is
 		// the resume source of truth: rejected diagrams are hidden there.
-		if (linkedNote(ctx)) {
-			rebuildDrawn(ctx);
-			event.systemPromptOptions.sections.lesson_presentation = LESSON_PRESENTATION_POLICY;
-		}
+		if (!linkedNote(ctx)) return;
+		rebuildDrawn(ctx);
+		warmMermaidWorker();
+		event.systemPromptOptions.sections.lesson_presentation = LESSON_PRESENTATION_POLICY;
+		event.systemPromptOptions.sections[LESSON_SKILLS_SECTION] = LESSON_SKILLS_POLICY;
 		event.systemPromptOptions.sections[PROMPT_SECTION] = SYSTEM_DIAGRAM_POLICY;
 	});
 
@@ -468,12 +486,14 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 	pi.on("message_end", async (event, ctx) => {
 		const message: any = event.message;
 		if (message?.role !== "assistant") return;
+		if (!linkedNote(ctx)) return;
 		// Validation starts now; the gate awaits it, so a quiz never outruns it.
 		track(message, ctx);
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
 		if (!GATED_TOOLS.has(event.toolName)) return;
+		if (!linkedNote(ctx)) return;
 		const rec = findRecord(ctx, event.toolCallId);
 		if (!rec) return;
 		if (rec.blockReason) return { block: true, reason: rec.blockReason };
@@ -486,6 +506,7 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 	});
 
 	pi.on("agent_before_settle", async (event, ctx) => {
+		if (!linkedNote(ctx)) return;
 		if (event.outcome !== "completed" || !lastRecord) return;
 		const diagramVerdict = await reviewPendingDiagrams(false);
 		if (diagramVerdict) {
@@ -513,7 +534,8 @@ export default function systemDiagrams(pi: ExtensionAPI) {
 		};
 	});
 
-	pi.on("agent_settled", async () => {
+	pi.on("agent_settled", async (_event, ctx) => {
+		if (!linkedNote(ctx)) return;
 		await Promise.all([...pendingDiagrams].map((rec) => rec.quality.catch(() => ({ status: "unavailable", issues: [] }))));
 		for (const [hash, status] of persistQuality) {
 			if (persistedStatus.get(hash) === status) continue;

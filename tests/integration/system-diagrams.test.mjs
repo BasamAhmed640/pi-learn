@@ -19,7 +19,9 @@ async function load() {
 const LONG_SYSTEM_PROSE =
 	"Your body keeps blood glucose near a set point. Beta cells in the pancreas sense a rise after a meal and release insulin; insulin tells liver, muscle and fat cells to take glucose up and store it as glycogen. When glucose falls, alpha cells release glucagon, which tells the liver to break glycogen down and release glucose. The result is a negative-feedback loop: every correction reduces the signal that caused it, so the level settles back toward the set point instead of running away.";
 
-function harness(ext, classifierReplies) {
+const LINK_ENTRY = { type: "custom", customType: "learn-link", data: { file: "C:/vault/Learn/Topic.md" } };
+
+function harness(ext, classifierReplies, { linked = true } = {}) {
 	const calls = [];
 	const replies = [...classifierReplies];
 	const ctx = {
@@ -36,7 +38,7 @@ function harness(ext, classifierReplies) {
 				};
 			},
 		},
-		sessionManager: { getBranch: () => [], getSessionId: () => "sess-123" },
+		sessionManager: { getBranch: () => [], getSessionId: () => "sess-123", getEntries: () => (linked ? [LINK_ENTRY] : []) },
 		ui: { notify() {}, setStatus() {} },
 		hasUI: true,
 		cwd: tmpdir(),
@@ -63,24 +65,39 @@ function harness(ext, classifierReplies) {
 const verdict = (v, extra = {}) =>
 	JSON.stringify({ teaches: true, concept: "Blood-glucose regulation", features: [1, 3, 6], verdict: v, covered: false, reason: "r", ...extra });
 
-test("the policy is injected as a structured system-prompt section on every run", async () => {
+test("an unlinked session receives no lesson policy, no skills and no gating", async () => {
+	const ext = await load();
+	const h = harness(ext, [verdict("clearly")], { linked: false });
+	const event = { prompt: "teach me", systemPrompt: "", systemPromptOptions: { sections: {} } };
+	await h.emit("before_agent_start", event);
+	assert.equal(event.systemPromptOptions.sections.system_diagrams, undefined, "plain chat gets no system-diagram rule");
+	assert.equal(event.systemPromptOptions.sections.lesson_presentation, undefined, "unlinked Pi sessions keep their own presentation");
+	assert.equal(event.systemPromptOptions.sections.lesson_skills, undefined, "the teaching skills are not advertised outside a lesson");
+
+	await h.emit("session_start", { reason: "startup" });
+	await h.emit("agent_start", {});
+	await h.assistant(LONG_SYSTEM_PROSE, ["plain"]);
+	assert.equal(await h.quiz("plain"), undefined, "a quiz in plain chat is never held back for a diagram");
+	assert.equal(await h.emit("agent_before_settle", { entries: [], continue: false, outcome: "completed", context: {} }), undefined);
+	assert.equal(h.calls.length, 0, "no classifier call is spent outside a lesson");
+});
+
+test("a linked lesson gets the diagram rule, the presentation policy and both lesson skills", async () => {
 	const ext = await load();
 	const h = harness(ext, []);
 	const event = { prompt: "teach me", systemPrompt: "", systemPromptOptions: { sections: {} } };
 	await h.emit("before_agent_start", event);
 	assert.match(event.systemPromptOptions.sections.system_diagrams, /SYSTEMS GET A MERMAID DIAGRAM BY DEFAULT/);
-	assert.equal(event.systemPromptOptions.sections.lesson_presentation, undefined, "unlinked Pi sessions keep their own presentation");
-	h.ctx.sessionManager.getEntries = () => [{ type: "custom", customType: "learn-link", data: { file: "C:/vault/Learn/Topic.md" } }];
-	const linkedEvent = { prompt: "teach me", systemPrompt: "", systemPromptOptions: { sections: {} } };
-	await h.emit("before_agent_start", linkedEvent);
-	assert.match(linkedEvent.systemPromptOptions.sections.lesson_presentation, /clear, self-contained book section/);
-	assert.match(linkedEvent.systemPromptOptions.sections.lesson_presentation, /Do not expose private reasoning/);
-	assert.match(linkedEvent.systemPromptOptions.sections.lesson_presentation, /approval of the Learning path/);
-	assert.match(linkedEvent.systemPromptOptions.sections.lesson_presentation, /Never write an approval or check question as bare prose/);
-	assert.match(linkedEvent.systemPromptOptions.sections.lesson_presentation, /one substantial concept section/);
-	assert.match(linkedEvent.systemPromptOptions.sections.lesson_presentation, /one or two diagnostic quiz checks/);
-	assert.match(linkedEvent.systemPromptOptions.sections.lesson_presentation, /save concept diagrams and teaching sections until the learner approves the path/);
-	assert.match(linkedEvent.systemPromptOptions.sections.lesson_presentation, /on a generic "Continue," advance to its next concept/);
+	assert.match(event.systemPromptOptions.sections.lesson_skills, /skills[\\/]teach[\\/]SKILL\.md/);
+	assert.match(event.systemPromptOptions.sections.lesson_skills, /skills[\\/]visualize[\\/]SKILL\.md/);
+	assert.match(event.systemPromptOptions.sections.lesson_presentation, /clear, self-contained book section/);
+	assert.match(event.systemPromptOptions.sections.lesson_presentation, /Do not expose private reasoning/);
+	assert.match(event.systemPromptOptions.sections.lesson_presentation, /approval of the Learning path/);
+	assert.match(event.systemPromptOptions.sections.lesson_presentation, /Never write an approval or check question as bare prose/);
+	assert.match(event.systemPromptOptions.sections.lesson_presentation, /one substantial concept section/);
+	assert.match(event.systemPromptOptions.sections.lesson_presentation, /one or two diagnostic quiz checks/);
+	assert.match(event.systemPromptOptions.sections.lesson_presentation, /save concept diagrams and teaching sections until the learner approves the path/);
+	assert.match(event.systemPromptOptions.sections.lesson_presentation, /on a generic "Continue," advance to its next concept/);
 });
 
 test("an undiagrammed system explanation holds back its quiz once, then the diagram unlocks it", async () => {

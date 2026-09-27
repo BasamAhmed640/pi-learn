@@ -1,6 +1,7 @@
 ---
 name: teach
 description: Teach the user anything so it actually locks in and is understood, not just memorized. Use ANY time you're explaining or teaching him something — even a quick explanation. Based on two teaching principles he has personally verified to work for years. Whenever the thing being taught is a system (interacting parts whose relationships matter), the lesson includes a Mermaid diagram of it by default.
+disable-model-invocation: true
 ---
 
 # Teaching

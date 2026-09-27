@@ -1,3 +1,20 @@
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/** Lesson skills ship beside the extensions in this package. */
+const SKILLS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "skills");
+
+/**
+ * The lesson skills are hidden from the model's skill list
+ * (`disable-model-invocation` in their frontmatter), so a linked lesson has to hand
+ * the tutor their paths explicitly. Outside a lesson nothing advertises them, which
+ * is the point: plain chat must not run on the teaching method.
+ */
+export const LESSON_SKILLS_POLICY = `LESSON SKILLS — READ THESE FIRST
+This session is a linked Obsidian lesson, so two skills apply to it. Read both files with the read tool before writing lesson text and keep following them for the rest of the lesson:
+- ${join(SKILLS_DIR, "teach", "SKILL.md")} — the teaching method (probe, plan, teach, check) and the system → Mermaid rule.
+- ${join(SKILLS_DIR, "visualize", "SKILL.md")} — when a picture earns its place, and how a maker subagent renders it.`;
+
 /** Short system-prompt reminder for lessons linked to an Obsidian note. */
 export const LESSON_PRESENTATION_POLICY = `LINKED OBSIDIAN LESSON — READER-FACING PRESENTATION
 Your visible assistant text is saved in the learner's note. Write it as a clear, self-contained book section, not a work log. Use descriptive concept headings, short paragraphs, a motivated explanation, and a concrete example when useful. Put diagrams, equations and relevant reference images beside the words that explain them. Let the question tools provide the question and answer callouts.

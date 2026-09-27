@@ -367,8 +367,9 @@ test("/learn open keeps previous sessions and learner text byte-for-byte", async
 	assert.ok(now.body.slice(before.body.length).startsWith(`\n## Session 2 (${today()})\n${marker(s.sessionId)}\n`));
 	assert.ok(!now.body.slice(before.body.length).includes("> [!quote] Learner"), "opening a note never imports the earlier Pi conversation");
 	assert.ok(!now.body.includes("Continues [[#"), "plain /learn open does not resume");
-	// frontmatter: unknown keys and order kept, own keys merged
-	assert.deepEqual(now.lines.slice(0, 4), ["aliases:", "  - BST basics", 'learn-topic: "Binary search trees"', "rating: 4"]);
+	// frontmatter: unknown keys and order kept, own keys merged.
+	// The fixture is checked out with the platform's line ends, so assert in its own style.
+	assert.deepEqual(now.lines.slice(0, 4), ["aliases:", "  - BST basics", 'learn-topic: "Binary search trees"', "rating: 4"].map((line) => line + before.cr));
 	const fm = readFrontmatter(after);
 	assert.equal(fm["learn-created"], "2026-09-20");
 	assert.deepEqual(fm.tags, ["cs"]);
