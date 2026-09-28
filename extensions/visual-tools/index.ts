@@ -28,14 +28,15 @@
  * pi loads PROJECT-local extensions (this one) BEFORE global ones, so
  * `globalThis.__pi_interactive_subagents` does not exist yet when this factory
  * runs. We defer registration to `session_start`, which fires once after every
- * extension's factory has run. Registration is idempotent (same name+path is a
- * no-op), so `/reload` or a "reload"/"new"/"resume" session_start is harmless.
+ * extension's factory has run. Registration is deferred further until a
+ * /teach or /learn lesson is linked. The mapping itself is idempotent.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { fileURLToPath } from "node:url"
+import { linkedNoteFromEntries } from "../lib/learn-link-state.ts"
 
 const EXT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const MERMAID_TOOLS = path.join(EXT_DIR, "tools", "mermaid_tools.ts")
@@ -68,7 +69,13 @@ function registerToolExtensions(): void {
 }
 
 export default function (pi: ExtensionAPI) {
-  pi.on("session_start", async () => {
-    registerToolExtensions()
+  const registerForLesson = (ctx: any) => {
+    if (linkedNoteFromEntries(ctx.sessionManager?.getEntries?.() ?? [])) registerToolExtensions()
+  }
+  pi.on("session_start", async (_event, ctx) => {
+    registerForLesson(ctx)
+  })
+  pi.on("before_agent_start", async (_event, ctx) => {
+    registerForLesson(ctx)
   })
 }

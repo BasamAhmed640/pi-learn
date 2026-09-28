@@ -16,9 +16,7 @@
       "./extensions/commons-images.ts",
       "./extensions/visual-tools/index.ts"
     ],
-    "skills": [
-      "./skills"
-    ]
+    "skills": []
   },
   "scripts": {
     "test": "node tests/run.mjs"

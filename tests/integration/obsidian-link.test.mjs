@@ -84,6 +84,12 @@ function newDir(name) {
 async function load(extPath, session, cwd) {
 	const runtime = loader.createExtensionRuntime();
 	const calls = { sendMessage: [], sendUserMessage: [] };
+	const allTools = ["read", "bash", "edit", "write", "quiz", "ask_user_question", "search_commons_images", "import_commons_image"];
+	let activeTools = [...allTools];
+	runtime.getActiveTools = () => [...activeTools];
+	runtime.getAllTools = () => allTools.map((name) => ({ name }));
+	runtime.setActiveTools = (names) => { activeTools = [...names]; };
+	calls.activeTools = () => [...activeTools];
 	runtime.appendEntry = (customType, data) => session.custom(customType, data);
 	runtime.sendMessage = (message, options) => calls.sendMessage.push({ message, options });
 	runtime.sendUserMessage = (content, options) => calls.sendUserMessage.push({ content, options });
@@ -499,7 +505,7 @@ test("/learn creates the note + index, links it and starts teaching", async () =
 	assert.equal(guide?.message.customType, "pi-learn-help");
 	assert.equal(guide?.message.display, true);
 	assert.equal(guide?.options?.triggerTurn, false, "help must not interrupt a running model turn");
-	for (const usage of ["/learn <topic>", "/learn new", "/learn open", "/learn search", "/learn resume", "/learn status", "/learn close", "/learn obsidian", "/skill:teach", "/skill:visualize", "search_commons_images", "Learn Index.md", notes]) {
+	for (const usage of ["/learn <topic>", "/learn new", "/learn open", "/learn search", "/learn resume", "/learn status", "/learn close", "/learn obsidian", "/teach <topic>", "search_commons_images", "Learn Index.md", notes]) {
 		assert.ok(guide.message.content.includes(usage), `guide lacks ${usage}`);
 	}
 	assert.equal(calls.sendUserMessage.length, 0, "help never starts the model");
@@ -530,6 +536,34 @@ test("/learn creates the note + index, links it and starts teaching", async () =
 	// the teaching turn is logged live into the new section
 	await emit(ext, "message_end", { type: "message_end", message: { role: "user", content: "Teach me: How does TCP/IP work?" } }, ctx);
 	assert.ok(read(file).endsWith(`${marker(s.sessionId)}\n\n\n> [!quote] Learner\n> Teach me: How does TCP/IP work?\n`));
+});
+
+test("ordinary sessions hide lesson tools; /teach enables them and /learn close hides them again", async () => {
+	const notes = newDir("teach-tools");
+	const previousNotesDir = process.env.PI_LEARN_NOTES_DIR;
+	process.env.PI_LEARN_NOTES_DIR = notes;
+	try {
+		const s = createSession("56565656-teach-tools");
+		const { ext, calls } = await load(realExtension, s, root);
+		const ctx = makeCtx(s, root);
+		await emit(ext, "session_start", { type: "session_start", reason: "startup" }, ctx);
+		assert.deepEqual(calls.activeTools(), ["read", "bash", "edit", "write"]);
+		await command(ext, "teach", "", ctx);
+		assert.deepEqual(calls.activeTools(), ["read", "bash", "edit", "write"], "help stays dormant");
+		await command(ext, "teach", "Control loops", ctx);
+		assert.ok(existsSync(join(notes, "Control loops.md")));
+		assert.deepEqual(calls.sendUserMessage.map((c) => c.content), ["Teach me: Control loops"]);
+		assert.deepEqual(calls.activeTools(), ["read", "bash", "edit", "write", "quiz", "ask_user_question", "search_commons_images", "import_commons_image"]);
+		await command(ext, "learn", "close", ctx);
+		assert.deepEqual(calls.activeTools(), ["read", "bash", "edit", "write"]);
+		// A later session restart restores its own entry state, not the prior lesson's tools.
+		const unrelated = createSession("67676767-ordinary");
+		await emit(ext, "session_start", { type: "session_start", reason: "switch" }, makeCtx(unrelated, root));
+		assert.deepEqual(calls.activeTools(), ["read", "bash", "edit", "write"]);
+	} finally {
+		if (previousNotesDir === undefined) delete process.env.PI_LEARN_NOTES_DIR;
+		else process.env.PI_LEARN_NOTES_DIR = previousNotesDir;
+	}
 });
 
 test("/learn uses a personal notes directory when Pi is started outside the vault", async () => {

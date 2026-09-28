@@ -64,6 +64,11 @@ async function harness({ withNote = false, linked = true, replies = [], session 
 	}
 	const runtime = createExtensionRuntime();
 	runtime.appendEntry = (customType, data) => session.custom(customType, data);
+	const allTools = ["read", "bash", "edit", "write", "quiz", "ask_user_question", "search_commons_images", "import_commons_image"];
+	let activeTools = [...allTools];
+	runtime.getActiveTools = () => [...activeTools];
+	runtime.getAllTools = () => allTools.map((name) => ({ name }));
+	runtime.setActiveTools = (names) => { activeTools = [...names]; };
 	const paths = withNote ? [systemPath, obsidianLinkPath] : [systemPath];
 	const loaded = await loadExtensions(paths, dir, undefined, runtime);
 	assert.equal(loaded.errors.length, 0, loaded.errors.map((e) => e.error).join("; "));

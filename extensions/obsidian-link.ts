@@ -64,6 +64,8 @@ import { LEARN_LINK_ENTRY, linkedNoteFromEntries } from "./lib/learn-link-state.
 import { findVaultRoot } from "./lib/obsidian-style.ts";
 
 const QA_TOOLS = new Set(["quiz", "ask_user_question"]);
+const LESSON_TOOLS = ["quiz", "ask_user_question", "search_commons_images", "import_commons_image"];
+const LESSON_TOOL_SET = new Set(LESSON_TOOLS);
 
 /** Latest Obsidian link instance in this process (session replacement re-runs the factory). */
 const INSTANCE_KEY = "__piLearnObsidianLink";
@@ -106,7 +108,7 @@ function learnHelp(notesDir: string): string {
 | \`/learn status\` / \`/learn close\` | Show the linked note, or unlink it. |
 | \`/learn obsidian [folder]\` | Show or set the Obsidian notes folder. Pass a vault root to use its \`Learn\` folder. |
 
-**Skills:** \`/skill:teach\` loads the teaching method; \`/skill:visualize\` requests a generated visual when its maker tools are available.
+**Teaching:** \`/teach <topic>\` starts the same linked lesson as \`/learn new <topic>\`. The teaching and visual guidance loads only after a lesson starts.
 
 **During a lesson:** Pi asks graded \`quiz\` questions and \`ask_user_question\` prompts, draws Mermaid diagrams for systems, and can search Wikimedia Commons for a useful real image. The image tools (\`search_commons_images\` and \`import_commons_image\`) are used by the tutor and include attribution; they are not slash commands.
 
@@ -163,9 +165,21 @@ export default function obsidianLink(pi: ExtensionAPI) {
 	let currentCwd = process.cwd();
 	sharedState();
 
+	/** Keep this package's model tools out of ordinary sessions without changing other extensions' loadouts. */
+	function syncLessonTools(active: boolean): void {
+		const current = pi.getActiveTools();
+		const next = current.filter((name) => !LESSON_TOOL_SET.has(name));
+		if (active) {
+			const available = new Set(pi.getAllTools().map((tool) => tool.name));
+			for (const name of LESSON_TOOLS) if (available.has(name)) next.push(name);
+		}
+		if (current.length !== next.length || current.some((name, index) => name !== next[index])) pi.setActiveTools(next);
+	}
+
 	function setLinked(file: string | null, ctx: any): void {
 		logFile = file;
 		sharedState().linkedNote = file;
+		syncLessonTools(Boolean(file));
 		if (file) {
 			const theme = ctx.ui.theme;
 			ctx.ui.setStatus(
@@ -203,6 +217,12 @@ export default function obsidianLink(pi: ExtensionAPI) {
 		currentCwd = ctx.cwd;
 		const file = linkedNoteFromEntries(ctx.sessionManager.getEntries());
 		setLinked(file, ctx);
+	});
+
+	// Another extension can change the loadout after session_start. Reconcile just
+	// before a model turn, including the first turn after /learn links a note.
+	pi.on("before_agent_start", (_event, ctx) => {
+		syncLessonTools(Boolean(linkedNoteFromEntries(ctx.sessionManager.getEntries())));
 	});
 
 	// --- Serialization: events can fire close together; keep appends ordered ---
@@ -1037,5 +1057,13 @@ export default function obsidianLink(pi: ExtensionAPI) {
 	pi.registerCommand("learn-resume", {
 		description: "Shortcut for /learn resume (latest note when no name is given)",
 		handler: async (args, ctx: any) => resumeExisting(args, ctx, true),
+	});
+
+	pi.registerCommand("teach", {
+		description: "Start a linked teaching lesson: /teach <topic>",
+		handler: async (args, ctx: any) => {
+			if (args.trim()) return startTopic(args, ctx);
+			pi.sendMessage({ customType: "pi-learn-help", content: learnHelp(notesDirFor(ctx)), display: true }, { triggerTurn: false });
+		},
 	});
 }

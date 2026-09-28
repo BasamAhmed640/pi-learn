@@ -11,7 +11,7 @@ This fork adds:
   flowchart, sequence, state, class/ER or timeline. Complex systems get an overview plus zoom-ins. Atomic or purely
   definitional concepts get no diagram. The decision is based on structure, not on keywords
   (see [Systems get a Mermaid diagram](skills/teach/SKILL.md)).
-- **Checks that make the default hold.** The rule is injected into every run. Every diagram is parsed with
+- **Checks that make the default hold.** The rule is injected into active lessons. Every lesson diagram is parsed with
   Mermaid 11.13.0, the version Obsidian bundles, and broken ones are sent back for a redraw. A semantic check holds a
   quiz back if the explanation it tests describes a system but has no diagram yet. A bounded quality check rejects
   disconnected mapping pictures and asks a model to flag definite causal errors before the next quiz. Reviewer
@@ -67,7 +67,7 @@ a UI lock with `quiz`. Add this to `Learn/.pi/settings.json` under `packages`:
 { "source": "npm:@juicesharp/rpiv-ask-user-question", "extensions": [] }
 ```
 
-For a personal install outside the project, filter the personal rpiv extension in `<agent-dir>/settings.json` the same way. This keeps the package installed but avoids a duplicate `ask_user_question` registration error; pi-learn provides the question tool everywhere.
+For a personal install outside the project, filter the personal rpiv extension in `<agent-dir>/settings.json` the same way. This keeps the package installed but avoids a duplicate `ask_user_question` registration error; pi-learn activates its question tool during lessons.
 
 Start `pi` in the `Learn` folder and approve project trust once. The original install still works too: clone this
 repo as the project's `.pi` directory.
@@ -83,6 +83,7 @@ repo as the project's `.pi` directory.
 | `/learn resume [note]` | Starts a fresh Pi session using the note's contents, including any saved plan, diagrams, quizzes and recent exchanges. With no name, opens a picker. |
 | `/learn status` / `/learn close` | Shows the current link or unlinks the note. |
 | `/learn obsidian [folder]` | Shows or sets the Obsidian notes folder. A vault root selects its `Learn` folder. |
+| `/teach <topic>` | Starts the same linked lesson as `/learn new <topic>`. With no topic, shows help. |
 
 Type `/learn open ` or `/learn resume ` and use Pi's completion list to narrow by note title. Search also includes
 ordinary Markdown notes in the selected vault folder. `/learn-resume` remains a shortcut; with no name, it chooses
@@ -105,18 +106,18 @@ remains in place.
 - `styles/pi-learn.css`: the Obsidian snippet (centered callouts, equations, diagrams)
 - `extensions/visual-tools/`, `agents/`: Amos's maker subagents (need pi-interactive-subagents, which runs in tmux)
 
-### Lesson gating — learn-only behaviour stays learn-only
+### Lesson gating — teaching stays opt-in
 
 Everything that turns a session into a *lesson* is gated on a linked note (the `learn-link` session entry
-`/learn` writes). A plain Pi session is never taught to, gated, or slowed down:
+`/learn` or `/teach` writes). A plain Pi session has no lesson instructions, skills, or learning tools in its model context:
 
 - `extensions/system-diagrams.ts` injects `system_diagrams`, `lesson_presentation` and `lesson_skills`, and
   starts the Mermaid worker, the quiz gate and the diagram quality reviews, only while a lesson is linked.
-- `skills/teach/` and `skills/visualize/` set `disable-model-invocation: true`, so they never appear in the
-  model's skill list outside a lesson; a linked lesson gets both `SKILL.md` paths in `lesson_skills` instead.
-  `/skill:teach` and `/skill:visualize` still work when asked for explicitly.
-- The question tools (`quiz`, `ask_user_question`) and the Commons tools stay registered everywhere: that is
-  the calling surface a user starts a lesson with, not the teaching method.
+- The package exports no global Pi skills. A linked lesson gets the teaching and visualization file paths in
+  `lesson_skills` and reads them as it begins.
+- The question tools (`quiz`, `ask_user_question`) and the Commons tools are active only while a lesson is linked.
+  `/learn close` removes them again; switching sessions restores the right loadout for that session.
+- The optional maker tool mappings are registered only when a lesson starts.
 
 `tests/integration/system-diagrams.test.mjs` guards both sides: an unlinked session must stay plain, and a
 linked lesson must still receive the policy, the presentation rules and the skill paths.
